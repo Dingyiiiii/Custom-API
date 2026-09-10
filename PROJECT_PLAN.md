@@ -1,7 +1,7 @@
 # Custom-API 项目计划：自用 LLM 中转「海关」
 
-> 项目目录：`/home/honor/Projects/WayToEfficientAITools/Custom-API`
-> 部署目标：FreeBSD Celestitine（15.1-RELEASE，4C/8G，119G UFS，千兆）
+> 项目目录：本仓库根目录(随部署环境而定),不硬编码本机绝对路径
+> 部署目标：FreeBSD 15.1-RELEASE(4C/8G,119G UFS,千兆)
 > 定位：**自用**模型中转网关 —— 用户侧体验等同商用中转站，但无支付系统，改用配额；核心价值在「海关」：跨接入点统合、比价、跑分、自动择优路由，以及对**不可信用户与不可信接入点**的双向安全审计与计量校验。
 
 ---
@@ -221,9 +221,9 @@ A 与 B 必须使用同一个 request ID 关联一次请求，并传播用户/�
 
 ---
 
-## 五、部署形态（FreeBSD Celestitine）
+## 五、部署形态(FreeBSD 目标机)
 
-- **new-api**：官方 release 当前提供 Linux amd64/arm64，没有 FreeBSD amd64 构建。已在 Celestitine 的 Linuxulator + `linux_base-rl9` 上验证 `v1.0.0-rc.33` 官方 Linux amd64 二进制可运行：临时 SQLite、`/api/status` 健康接口、后台任务启动/终止均正常；release SHA-256 已与官方 `checksums-linux.txt` 核对。第一候选部署形态为 Linuxulator 直接进程；若后续遇到 syscall/数据库/性能问题，再改 jail 或本机交叉编译 FreeBSD 版。
+- **new-api**：官方 release 当前提供 Linux amd64/arm64，没有 FreeBSD amd64 构建。已在目标机的 Linuxulator + `linux_base-rl9` 上验证 `v1.0.0-rc.33` 官方 Linux amd64 二进制可运行：临时 SQLite、`/api/status` 健康接口、后台任务启动/终止均正常；release SHA-256 已与官方 `checksums-linux.txt` 核对。第一候选部署形态为 Linuxulator 直接进程；若后续遇到 syscall/数据库/性能问题，再改 jail 或本机交叉编译 FreeBSD 版。
 - **海关 A/B 代理**：自研（Go 优先 —— 与 new-api 同为 Go、单二进制、流式转发性能好；备选 Python 快速原型）；A 与 B 分离部署或至少分离监听地址、密钥和策略配置
 - **数据库**：M1 先用 new-api 自带 SQLite/WAL，单实例部署；稳定后再评估 PostgreSQL/MySQL 与独立日志库。new-api 当前 SQLite DSN 使用 busy timeout、WAL 和 immediate transaction，仍需用项目自身测试及本项目并发回归验证。
 - **Linuxulator 烟雾测试已发现的上线项**：必须设置随机 `SESSION_SECRET`/`CRYPTO_SECRET`、启用安全 refresh cookie（HTTPS 反代后设置 `SESSION_COOKIE_SECURE=true` 并配置精确 trusted origins）、关闭不需要的支付/webhook/OAuth 面、限制管理端监听地址；测试日志还出现 `system instance report failed: json: unsupported value: NaN`，需要先定位指标来源并确认不影响业务或在部署前修复/降级。
@@ -295,7 +295,7 @@ M1 不接真实上游、不保存真实 key，只验证系统边界与可回归�
 
 1. **协议范围**：M1 是否只做 OpenAI-compatible？Anthropic 原生是否并行？（影响 new-api 配置与海关解析器范围）
 2. **海关实现语言**：Go（推荐，单二进制/流式性能）还是 Python（快但部署重）？
-3. **new-api 部署**：Celestitine 直接进程 vs jail？
+3. **new-api 部署**:目标机直接进程 vs jail?
 4. **真实上游首批名单**：哪些渠道先接入（建议先用假渠道跑通 M1-M3）？
 5. **配额语义**：用户配额 = new-api 原生额度 是否足够？是否要「日/周重置型」自定义配额？
 6. **审计暴露**：审计事件是否需要管理界面可视化，还是先 CLI/日志？
