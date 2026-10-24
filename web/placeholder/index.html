@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Custom-API 海关网关</title>
+<style>
+  body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#0f1115;color:#e6e6e6;
+       margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh}
+  .card{max-width:640px;padding:2.5rem;background:#171a21;border:1px solid #2a2f3a;border-radius:12px}
+  h1{margin:0 0 .5rem;font-size:1.35rem}
+  p{line-height:1.7;color:#a8b0bd}
+  code{background:#0f1115;padding:.15rem .4rem;border-radius:4px;color:#7dd3fc}
+  .ok{color:#4ade80}.warn{color:#fbbf24}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Custom-API 海关网关</h1>
+  <p class="ok">后端正在运行。</p>
+  <p>前端尚未构建。这个页面是 <code>web/placeholder/</code> 中的占位页，
+     二进制在没有前端产物时也能正常启动，不会因为缺界面而失败。</p>
+  <p>构建前端：<br><code>cd web &amp;&amp; npm ci &amp;&amp; npm run build</code><br>
+     网关会把 <code>web/dist</code> 直接对外提供，无需重新构建二进制。</p>
+  <p class="warn">在构建之前，管理 API 仍然可用：
+     <code>GET /admin/stats</code>、<code>/admin/providers</code>、<code>/admin/models</code>、<code>/admin/audit</code>。</p>
+</div>
+</body>
+</html>

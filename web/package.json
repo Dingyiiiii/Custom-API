@@ -1,0 +1,26 @@
+{
+  "name": "customapi-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Custom-API 海关网关管理控制台（Vue 3 + Vite + TypeScript）",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "vue-tsc --noEmit",
+    "test": "node scripts/check-auth.mjs",
+    "build": "vue-tsc --noEmit && vite build",
+    "postbuild": "node scripts/keep-gitkeep.mjs",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "pinia": "^4.0.3",
+    "vue": "^3.5.43",
+    "vue-router": "^5.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.9",
+    "typescript": "~5.9.3",
+    "vite": "^8.3.0",
+    "vue-tsc": "^3.3.11"
+  }
+}

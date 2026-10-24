@@ -1,0 +1,6 @@
+# Dependencies installed by npm; never part of the source tree.
+node_modules/
+
+# Local editor / tooling state.
+.vite/
+*.local
