@@ -1,0 +1,16 @@
+[package]
+name = "customsctl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Custom-API operator CLI"
+
+[[bin]]
+name = "customsctl"
+path = "src/main.rs"
+
+[dependencies]
+customapi-core = { workspace = true }
+clap = { workspace = true }
+log = { workspace = true }
+serde_json = { workspace = true }

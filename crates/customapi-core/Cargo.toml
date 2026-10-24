@@ -1,0 +1,29 @@
+[package]
+name = "customapi-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Custom-API customs gateway core: config, wire protocol, audit, metering, routing, gateway pipeline"
+
+[dependencies]
+tokio = { workspace = true }
+axum = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+http = { workspace = true }
+http-body = { workspace = true }
+http-body-util = { workspace = true }
+bytes = { workspace = true }
+reqwest = { workspace = true }
+futures-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+chrono = { workspace = true }
+base64 = { workspace = true }
+regex = { workspace = true }
+rand = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+percent-encoding = { workspace = true }
+libc = { workspace = true }

@@ -1,0 +1,15 @@
+# Build output
+target/
+dist/
+
+# Local runtime state
+var/
+*.log
+*.pid
+
+# Node (admin console)
+node_modules/
+web/dist/
+
+# OS noise
+.DS_Store

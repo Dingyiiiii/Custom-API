@@ -1,0 +1,49 @@
+[workspace]
+members = [
+    "crates/customapi-core",
+    "crates/customsd",
+    "crates/benchd",
+    "crates/customsctl",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["CustomAPI"]
+rust-version = "1.89"
+
+[workspace.dependencies]
+customapi-core = { path = "crates/customapi-core" }
+
+# Runtime and HTTP server
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "signal", "sync", "fs", "io-util"] }
+axum = { version = "0.7", default-features = false, features = ["http1", "json", "query", "tokio"] }
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http = "1"
+http-body = "1"
+http-body-util = "0.1"
+bytes = "1"
+
+# Upstream client (pure-Rust TLS: no C toolchain needed for cross builds)
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json", "gzip", "http2", "charset"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+
+# Serialization, hashing, time
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+chrono = { version = "0.4", features = ["serde"] }
+base64 = "0.22"
+
+# Utilities
+regex = "1"
+rand = "0.9"
+clap = { version = "4", features = ["derive"] }
+thiserror = "1"
+log = "0.4"
+env_logger = "0.10"
+percent-encoding = "2"
+libc = "0.2"

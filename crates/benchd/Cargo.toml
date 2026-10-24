@@ -1,0 +1,18 @@
+[package]
+name = "benchd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Custom-API intelligence daemon: prices, probes, benchmarks, scores"
+
+[[bin]]
+name = "benchd"
+path = "src/main.rs"
+
+[dependencies]
+customapi-core = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+serde_json = { workspace = true }
