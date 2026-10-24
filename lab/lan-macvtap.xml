@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The test VM sits directly on the LAN rather than behind libvirt's NAT.
+
+  Reason: the point of the guest is to be reachable like any other host on
+  10.10.1.0/24 - the workstation opens its management console in a browser and
+  the deployment scripts push a release to it. NAT would hide it behind the
+  host's address and require a forwarded port for every service.
+
+  Macvtap in bridge mode attaches a virtual interface to the physical one
+  without touching the host's own configuration: no bridge is created, the host
+  keeps its address and default route, and a mistake here cannot cut the host
+  off the network. The known trade-off is that the host cannot reach its own
+  macvtap guests, so the guest is driven over the serial console instead.
+-->
+<network>
+  <name>lan-macvtap</name>
+  <forward mode="bridge">
+    <interface dev="eno1"/>
+  </forward>
+</network>

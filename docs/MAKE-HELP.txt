@@ -1,0 +1,34 @@
+Custom-API customs gateway
+
+Build and deploy
+  make build          cross-compile the FreeBSD release (x86_64-unknown-freebsd)
+  make stage          assemble dist/customapi-<version>/ with checksums
+  make ship           copy the release to the target
+  make install        run the installer on the target
+  make test           run the 89-check acceptance test on the target
+  make all            build + stage + ship + install + test
+
+Verification
+  make local-test     cargo fmt --check + clippy + test + coverage, on this host
+  make test-race      cargo test --workspace (Rust has no race detector to switch on)
+  make test-cover     cargo llvm-cov over the workspace
+  make smoke          run the acceptance test on the target
+  make intel          run the intelligence pipeline test on the target
+  make e2e            smoke + intel
+
+Test virtual machine (libvirt, headless, serial console)
+  make vm             create (or recreate) the FreeBSD test VM
+  make vm-baseline    install curl/jq/ca_root_nss/sudo/python3/rust/git in the guest
+  make vm-status      show domain, network and address state
+  make vm-console     attach to the serial console (Ctrl-] to detach)
+  make vm-stop        shut the VM down
+  make vm-destroy     undefine the domain (images kept)
+
+Housekeeping
+  make fmt            cargo fmt --all, then verify the tree is clean
+  make vet            cargo clippy --workspace --all-targets
+  make clean          remove dist/ (the cargo cache survives)
+  make distclean      also remove target/
+  make version        print the version a build would stamp
+
+Target selection: CUSTOMAPI_TARGET (default: customapi-bsd)

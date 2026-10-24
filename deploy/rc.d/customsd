@@ -1,0 +1,124 @@
+#!/bin/sh
+#
+# PROVIDE: customsd
+# REQUIRE: NETWORKING
+# KEYWORD: shutdown
+#
+# Custom-API customs gateway: the audit, metering and smart-routing proxy that
+# sits between the user-facing gateway (new-api) and the upstream access points.
+#
+# Enable it with:
+#
+#	customsd_enable="YES"
+#	customsd_config="/usr/local/etc/customapi/customs.json"
+#	customsd_user="customapi"
+#	customsd_envfile="/usr/local/etc/customapi/customsd.env"
+#
+# Secrets (upstream API keys, gateway client tokens) are supplied through the
+# env file so they never appear in the world-readable configuration file. A
+# missing or unreadable secrets file is a startup error rather than a silently
+# unauthenticated service.
+
+. /etc/rc.subr
+
+name="customsd"
+rcvar="customsd_enable"
+desc="Custom-API customs gateway"
+
+load_rc_config $name
+
+: ${customsd_enable:="NO"}
+: ${customsd_config:="/usr/local/etc/customapi/customs.json"}
+: ${customsd_service_user:="customapi"}
+: ${customsd_envfile:="/usr/local/etc/customapi/customsd.env"}
+: ${customsd_logdir:="/var/log/customapi"}
+: ${customsd_bin:="/usr/local/sbin/customsd"}
+: ${customsd_extra_flags:=""}
+
+# --- process identity -------------------------------------------------------
+#
+# The service does not daemonise itself, so daemon(8) supervises it: that gives
+# a pid file, a log file, privilege dropping and restart-on-crash.
+#
+# Two details matter here:
+#
+#   1. The service user is held in ${name}_service_user, NOT ${name}_user.
+#      rc.subr treats ${name}_user as an instruction to switch user with
+#      su(1) itself, which would bypass daemon(8) entirely and hand the
+#      daemon's own flags to the gateway binary.
+#   2. Every variable referenced by command_args must be defined above it,
+#      because expanding an undefined variable yields the empty string.
+#
+# shellcheck disable=SC2034  # consumed by rc.subr
+pidfile="/var/run/${name}.pid"
+command="/usr/sbin/daemon"
+procname="${customsd_bin}"
+
+command_args="-f -u ${customsd_service_user} -p ${pidfile} -o ${customsd_logdir}/${name}.log"
+command_args="${command_args} /usr/local/libexec/customapi/customsd-wrapper -b ${customsd_bin} -c ${customsd_config}"
+if [ -n "${customsd_envfile}" ]; then
+	command_args="${command_args} -e ${customsd_envfile}"
+fi
+if [ -n "${customsd_extra_flags}" ]; then
+	command_args="${command_args} ${customsd_extra_flags}"
+fi
+
+# --- lifecycle --------------------------------------------------------------
+
+start_precmd="customsd_prestart"
+stop_postcmd="customsd_poststop"
+
+customsd_prestart()
+{
+	# A previous failed start can leave an empty pidfile behind, which
+	# daemon(8) then reports as "already running, pid: -1" - a message that
+	# says nothing about the real problem. Clear only a pidfile that names no
+	# live process.
+	if [ -f "${pidfile}" ]; then
+		_pid=$(cat "${pidfile}" 2>/dev/null || echo "")
+		if [ -z "${_pid}" ] || ! kill -0 "${_pid}" 2>/dev/null; then
+			rm -f "${pidfile}"
+		fi
+	fi
+
+	if [ ! -f "${customsd_config}" ]; then
+		err 1 "${name}: configuration not found: ${customsd_config}"
+	fi
+	if [ ! -x "${command}" ]; then
+		err 1 "${name}: launcher not found or not executable: ${command}"
+	fi
+	if [ ! -x "${customsd_bin}" ]; then
+		err 1 "${name}: binary not found or not executable: ${customsd_bin}"
+	fi
+	if ! id -u "${customsd_service_user}" >/dev/null 2>&1; then
+		err 1 "${name}: user does not exist: ${customsd_service_user}"
+	fi
+
+	if [ -n "${customsd_envfile}" ] && [ -f "${customsd_envfile}" ]; then
+		perms=$(stat -f '%Lp' "${customsd_envfile}")
+		if [ "${perms}" != "600" ] && [ "${perms}" != "640" ]; then
+			err 1 "${name}: ${customsd_envfile} is mode ${perms}; secrets must be 600 or 640"
+		fi
+		# The daemon reads the file *after* dropping to ${customsd_service_user}, so a
+		# root-only file would start a service that cannot read its own
+		# credentials. Catch that here rather than as a puzzling runtime error.
+		if ! su -m "${customsd_service_user}" -c "test -r '${customsd_envfile}'" 2>/dev/null; then
+			err 1 "${name}: ${customsd_envfile} is not readable by ${customsd_service_user}; run: chown root:${customsd_service_user} ${customsd_envfile} && chmod 640 ${customsd_envfile}"
+		fi
+	fi
+
+	# The state directory holds the audit ledger and the quota state file. It
+	# is owned by the service user and is mode 0750: the ledger is the system's
+	# evidence of record and should not be world-readable.
+	install -d -o "${customsd_service_user}" -g "${customsd_service_user}" -m 0750 /var/db/customapi
+	install -d -o "${customsd_service_user}" -g "${customsd_service_user}" -m 0750 "${customsd_logdir}"
+	return 0
+}
+
+customsd_poststop()
+{
+	rm -f "${pidfile}"
+	return 0
+}
+
+run_rc_command "$1"

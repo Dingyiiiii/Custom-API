@@ -92,11 +92,8 @@ mod tests {
     use std::io::Write;
 
     fn write_temp(name: &str, body: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "customs-envfile-{}-{}",
-            name,
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("customs-envfile-{}-{}", name, std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("secrets.env");
         let mut file = std::fs::File::create(&path).unwrap();

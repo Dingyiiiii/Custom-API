@@ -14,6 +14,14 @@ license = "MIT"
 authors = ["CustomAPI"]
 rust-version = "1.89"
 
+# Release binaries are shipped as single files to FreeBSD, so strip symbols and
+# let LLVM do a thin LTO pass. `panic = "unwind"` (the default) is kept on
+# purpose: the gateway catches panics per request and must keep serving.
+[profile.release]
+strip = "symbols"
+lto = "thin"
+codegen-units = 4
+
 [workspace.dependencies]
 customapi-core = { path = "crates/customapi-core" }
 
@@ -33,7 +41,10 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
 # Serialization, hashing, time
 serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["preserve_order"] }
+# float_roundtrip: serde_json's fast float path is not correctly rounded; Go's
+# encoding/json is, and audit prices/thresholds are compared against Go-written
+# files. raw_value backs the zero-rewrite JSON passthrough.
+serde_json = { version = "1", features = ["preserve_order", "raw_value", "float_roundtrip"] }
 sha2 = "0.10"
 chrono = { version = "0.4", features = ["serde"] }
 base64 = "0.22"

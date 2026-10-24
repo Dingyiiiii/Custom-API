@@ -11,5 +11,20 @@ var/
 node_modules/
 web/dist/
 
+# Test VM and lab images: large and reproducible from a mirror; see
+# vm/create-vm.sh and lab/create-lab-vm.sh for the URLs and checksums.
+vm/*.qcow2
+vm/*.qcow2.xz
+vm/*.img
+vm/seed.iso
+vm/user-data
+vm/meta-data
+lab/*.qcow2
+lab/*.qcow2.xz
+lab/*.img
+lab/seed.iso
+lab/user-data
+lab/meta-data
+
 # OS noise
 .DS_Store

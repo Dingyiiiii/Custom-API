@@ -509,11 +509,9 @@ impl<'de> Deserialize<'de> for Comment {
                 for item in items {
                     match item {
                         serde_json::Value::String(s) => out.push(s),
-                        other => {
-                            return Err(D::Error::custom(format!(
-                                "_comment must be a string or an array of strings: unexpected {other}"
-                            )))
-                        }
+                        other => return Err(D::Error::custom(format!(
+                            "_comment must be a string or an array of strings: unexpected {other}"
+                        ))),
                     }
                 }
                 Ok(Comment(out))
@@ -881,7 +879,10 @@ impl Config {
                 errors.push(format!("duplicate user token for {:?}", user.name));
             }
             seen_token.push(user.token.clone());
-            if !matches!(user.period.as_str(), "none" | "daily" | "weekly" | "monthly") {
+            if !matches!(
+                user.period.as_str(),
+                "none" | "daily" | "weekly" | "monthly"
+            ) {
                 errors.push(format!(
                     "user {:?}: period {:?} must be none/daily/weekly/monthly",
                     user.name, user.period
@@ -924,7 +925,10 @@ impl Config {
             let available = self.group_names();
             for group in &self.routing.groups {
                 if !available.contains(group) {
-                    errors.push(format!("routing.groups references unknown group {:?}", group));
+                    errors.push(format!(
+                        "routing.groups references unknown group {:?}",
+                        group
+                    ));
                 }
             }
         }
@@ -1141,15 +1145,220 @@ mod tests {
 
     #[test]
     fn comment_accepts_string_and_array() {
-        let from_string: Config = serde_json::from_str(
-            r#"{"_comment":"hello","server":{},"policy":{},"users":[]}"#,
-        )
-        .unwrap();
+        let from_string: Config =
+            serde_json::from_str(r#"{"_comment":"hello","server":{},"policy":{},"users":[]}"#)
+                .unwrap();
         assert_eq!(from_string.comment.0, vec!["hello".to_string()]);
         let from_array: Config =
             serde_json::from_str(r#"{"_comment":["a","b"],"server":{},"policy":{},"users":[]}"#)
                 .unwrap();
         assert_eq!(from_array.comment.as_text(), "a b");
+    }
+
+    fn write_config(name: &str, body: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("customs-config-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("customs.json");
+        std::fs::write(&path, body).unwrap();
+        path
+    }
+
+    /// Mirrors Go's `TestLoadMinimal`.
+    #[test]
+    fn load_minimal_applies_defaults() {
+        let path = write_config(
+            "minimal",
+            r#"{
+              "server": {"listen": "127.0.0.1:8080"},
+              "channels": [{"name": "a", "base_url": "http://a.example", "api_key": "k1"}],
+              "users": [{"name": "alice", "token": "tok-alice"}]
+            }"#,
+        );
+        let cfg = load(&path).expect("load");
+        assert_eq!(cfg.channels.len(), 1);
+        assert_eq!(cfg.users.len(), 1);
+        assert!(!cfg.server.admin_listen.is_empty());
+        assert_eq!(cfg.server.route_strategy, "value");
+        assert_eq!(cfg.server.fail_mode, "open");
+        assert_eq!(cfg.policy.metering.tolerance, 0.25);
+        assert_eq!(cfg.channels[0].trust_level(), TRUST_UNTRUSTED);
+        assert_eq!(cfg.users[0].trust_level(), TRUST_UNTRUSTED);
+        assert_eq!(cfg.channels[0].protocol, "openai");
+    }
+
+    /// Mirrors Go's `TestLoadMissingFile`.
+    #[test]
+    fn load_missing_file_reports_no_config() {
+        let path = std::env::temp_dir().join("customs-config-missing-does-not-exist.json");
+        let err = load(&path).unwrap_err();
+        assert!(err.is_no_config(), "{err}");
+    }
+
+    /// Mirrors Go's `TestLoadRejectsInvalidJSON`.
+    #[test]
+    fn load_rejects_invalid_json() {
+        let path = write_config("invalid", "{not json");
+        assert!(load(&path).is_err());
+    }
+
+    /// Mirrors Go's validation table in `config_test.go`.
+    #[test]
+    fn validation_messages_match_go() {
+        let cases: &[(&str, &str, &str)] = &[
+            (
+                "channel_required",
+                r#"{"server":{},"channels":[],"users":[{"name":"a","token":"t"}]}"#,
+                "at least one channel",
+            ),
+            (
+                "base_url",
+                r#"{"server":{},"channels":[{"name":"a"}],"users":[]}"#,
+                "base_url",
+            ),
+            (
+                "duplicate_channel",
+                r#"{"server":{},"channels":[{"name":"a","base_url":"http://x"},{"name":"a","base_url":"http://y"}],"users":[]}"#,
+                "duplicate channel",
+            ),
+            (
+                "duplicate_token",
+                r#"{"server":{},"channels":[{"name":"a","base_url":"http://x"}],"users":[{"name":"u1","token":"same"},{"name":"u2","token":"same"}]}"#,
+                "duplicate user token",
+            ),
+            (
+                "empty_token",
+                r#"{"server":{},"channels":[{"name":"a","base_url":"http://x"}],"users":[{"name":"u1"}]}"#,
+                "token must not be empty",
+            ),
+            (
+                "bad_protocol",
+                r#"{"server":{},"channels":[{"name":"a","base_url":"http://x","protocol":"soap"}],"users":[]}"#,
+                "protocol",
+            ),
+            (
+                "fail_mode",
+                r#"{"server":{"fail_mode":"maybe"},"channels":[{"name":"a","base_url":"http://x"}],"users":[]}"#,
+                "fail_mode",
+            ),
+            (
+                "strategy",
+                r#"{"server":{"route_strategy":"vibes"},"channels":[{"name":"a","base_url":"http://x"}],"users":[]}"#,
+                "route_strategy",
+            ),
+            (
+                "period",
+                r#"{"server":{},"channels":[{"name":"a","base_url":"http://x"}],"users":[{"name":"u","token":"t","period":"hourly"}]}"#,
+                "period",
+            ),
+            (
+                "trust",
+                r#"{"server":{},"channels":[{"name":"a","base_url":"http://x","trust":"sorta"}],"users":[]}"#,
+                "trust",
+            ),
+        ];
+        for (name, body, want) in cases {
+            let path = write_config(name, body);
+            let err = load(&path).unwrap_err().to_string();
+            assert!(err.contains(want), "case {name}: {err}");
+        }
+    }
+
+    /// Mirrors Go's `TestTruthyAcceptsTheUsualSpellings`.
+    #[test]
+    fn truthy_accepts_the_usual_spellings() {
+        for v in ["1", "true", "TRUE", "yes", "Yes", "on", " y ", "t"] {
+            assert!(truthy(v), "truthy({v:?}) should be true");
+        }
+        for v in ["", "0", "false", "no", "off", "maybe", "2"] {
+            assert!(!truthy(v), "truthy({v:?}) should be false");
+        }
+    }
+
+    /// Mirrors Go's `TestEnvironmentOverridesSecrets`, driven through
+    /// [`Config::apply_env`] so the test does not mutate process state.
+    #[test]
+    fn env_overrides_channel_and_user_secrets() {
+        let mut config = base_config();
+        config.channels[0].name = "upstream_a".to_string();
+        config.channels[0].base_url = "http://old.example".to_string();
+        config.users[0].name = "alice".to_string();
+        config.users[0].token = "placeholder".to_string();
+        config.apply_env(&[
+            (
+                "CUSTOMS_CHANNEL_UPSTREAM_A_APIKEY".to_string(),
+                "sk-real-secret".to_string(),
+            ),
+            (
+                "CUSTOMS_CHANNEL_UPSTREAM_A_BASEURL".to_string(),
+                "http://new.example".to_string(),
+            ),
+            (
+                "CUSTOMS_USER_ALICE_TOKEN".to_string(),
+                "tok-from-env".to_string(),
+            ),
+        ]);
+        assert_eq!(config.channels[0].api_key, "sk-real-secret");
+        assert_eq!(config.channels[0].base_url, "http://new.example");
+        assert_eq!(config.users[0].token, "tok-from-env");
+    }
+
+    /// Mirrors Go's `TestAdminRemoteIsOffUnlessConfigured` and the server
+    /// overrides test.
+    #[test]
+    fn env_overrides_server_settings() {
+        let mut config = base_config();
+        assert!(!config.server.admin_remote);
+        config.apply_env(&[
+            (
+                "CUSTOMS_SERVER_LISTEN".to_string(),
+                "0.0.0.0:9999".to_string(),
+            ),
+            ("CUSTOMS_SERVER_LOG_LEVEL".to_string(), "debug".to_string()),
+            ("CUSTOMS_SERVER_ADMIN_REMOTE".to_string(), "yes".to_string()),
+            (
+                "CUSTOMS_SERVER_ADMIN_TOKEN".to_string(),
+                "console-token".to_string(),
+            ),
+        ]);
+        assert_eq!(config.server.listen, "0.0.0.0:9999");
+        assert_eq!(config.server.log_level, "debug");
+        assert!(config.server.admin_remote);
+        assert_eq!(config.server.admin_token, "console-token");
+    }
+
+    /// Mirrors Go's `TestUserByToken`.
+    #[test]
+    fn user_lookup_is_exact() {
+        let config = Config {
+            users: vec![
+                User {
+                    name: "a".into(),
+                    token: "tok-a".into(),
+                    ..User::default()
+                },
+                User {
+                    name: "b".into(),
+                    token: "tok-bb".into(),
+                    ..User::default()
+                },
+            ],
+            ..Config::default()
+        };
+        assert_eq!(
+            config.user_by_token("tok-bb").map(|u| u.name),
+            Some("b".into())
+        );
+        assert!(config.user_by_token("tok-b").is_none());
+        assert!(config.user_by_token("").is_none());
+    }
+
+    /// Mirrors Go's `TestResolve`.
+    #[test]
+    fn resolve_keeps_absolute_and_empty_paths() {
+        assert_eq!(resolve(Path::new("/base"), "rel/path"), "/base/rel/path");
+        assert_eq!(resolve(Path::new("/base"), "/abs/path"), "/abs/path");
+        assert_eq!(resolve(Path::new("/base"), ""), "");
     }
 
     #[test]

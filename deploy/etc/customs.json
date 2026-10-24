@@ -1,0 +1,317 @@
+{
+  "_comment": [
+    "Custom-API customs gateway configuration.",
+    "",
+    "This file is world-readable, so it must NOT contain secrets. Provider keys",
+    "and user tokens are supplied through the --env-file (see customsd.env.example):",
+    "",
+    "  CUSTOMS_PROVIDER_<PROVIDER>_APIKEY                  single-key provider",
+    "  CUSTOMS_PROVIDER_<PROVIDER>_KEY_<KEYNAME>_APIKEY    one of several keys",
+    "  CUSTOMS_PROVIDER_<PROVIDER>_BASEURL                 override the base URL",
+    "  CUSTOMS_USER_<USERNAME>_TOKEN                        gateway client token",
+    "  CUSTOMS_SERVER_<FIELD>                               listen, log_level, ...",
+    "",
+    "A 'provider' is one vendor plus its API keys. Each enabled key becomes its",
+    "own routable channel named '<provider>' (one key) or '<provider>/<key>'",
+    "(several keys). That is what makes per-key failover work: a key that 429s or",
+    "500s is simply one unhealthy channel and the router moves to the next.",
+    "",
+    "Three protocols are served natively:",
+    "  /v1/chat/completions   OpenAI Chat Completions   protocol \"openai\"",
+    "  /v1/responses          OpenAI Responses API      protocol \"responses\"",
+    "  /v1/messages           Anthropic Messages        protocol \"anthropic\"",
+    "",
+    "routing.prefer_same_protocol keeps the common path lossless: a channel that",
+    "already speaks the client's protocol always wins over one needing a",
+    "conversion. routing.allow_translation permits the conversion as a fallback,",
+    "and a provider receives a foreign protocol only if it declares it in",
+    "'supports' - so a chat-only endpoint is never handed a Responses request.",
+    "",
+    "Unknown fields are rejected by design, so a misspelled key is a startup error",
+    "rather than a silently ignored default. Prose belongs here.",
+    "",
+    "server.listen binds the user-facing API to every interface, because the point",
+    "of deploying this gateway is to let clients reach it. server.admin_listen",
+    "stays on loopback by default: the admin API can issue quota and read the",
+    "audit ledger, so reach it through an SSH tunnel rather than exposing it.",
+    "  ssh -L 8081:127.0.0.1:8081 root@<guest>   then http://127.0.0.1:8081",
+    "Prefer that. Exposing the listener is the second-best option, not the",
+    "first:",
+    "",
+    "To reach the console from another machine, set admin_remote true AND",
+    "admin_token (in the 0640 env file, not here). Without the token the",
+    "listener answers 403 to every remote caller; with it, every remote call",
+    "must present it. The console's static shell stays reachable so the page",
+    "that asks for the token can load; the data behind /admin/* does not.",
+    "",
+    "policy.metering: a usage deviation is reported only when it exceeds BOTH the",
+    "relative tolerance and the absolute floor. The floor is not optional: on a",
+    "five-token reply a three-token difference is +60%, so a purely relative rule",
+    "flags honest upstreams on exactly the short requests that health checks and",
+    "benchmark probes make.",
+    "",
+    "This template ships with three aggregators, each holding one key named",
+    "\"main\", and both of them serving the same two models under the \"openai\"",
+    "(chat completions) and \"responses\" protocol surfaces. Because both are",
+    "declared in 'supports', neither model needs translation: a /v1/responses",
+    "request goes upstream as a Responses request.",
+    "",
+    "The keys are deliberately absent from this file. Put them in the env file",
+    "as shown in customsd.env.example, then confirm with:",
+    "",
+    "  customsctl config check --config /usr/local/etc/customapi/customs.json",
+    "  curl -s http://127.0.0.1:8081/admin/providers | jq '.providers[] | {name, has_key: .keys[0].has_key}'",
+    "",
+    "prices[] rows are keyed per channel+model and ship at zero. Zero means",
+    "\"no price recorded\", not \"free\": cost fields stay empty and the cheapest",
+    "strategy has nothing to rank on until real prices are filled in."
+  ],
+  "server": {
+    "listen": "0.0.0.0:8080",
+    "admin_listen": "127.0.0.1:8081",
+    "admin_remote": false,
+    "admin_token": "",
+    "audit_path": "/var/db/customapi/audit.jsonl",
+    "meter_path": "/var/db/customapi/meter.jsonl",
+    "state_path": "/var/db/customapi/state.json",
+    "price_path": "/usr/local/etc/customapi/catalogue.json",
+    "score_path": "/var/db/customapi/scores.json",
+    "upstream_timeout": "300s",
+    "fail_mode": "closed",
+    "log_level": "info",
+    "route_strategy": "value"
+  },
+  "routing": {
+    "prefer_same_protocol": true,
+    "allow_translation": true,
+    "max_attempts": 3,
+    "retry_on": [
+      "5xx",
+      "429",
+      "timeout",
+      "network",
+      "quota"
+    ]
+  },
+  "discovery": {
+    "enabled": true,
+    "interval": "30m",
+    "timeout": "20s",
+    "cache_path": "/var/db/customapi/state/catalogue.json",
+    "stale_after": "24h"
+  },
+  "policy": {
+    "outbound": {
+      "mode": "enforce",
+      "block_keywords": [],
+      "block_patterns": [],
+      "deny_tools": [
+        "run_command",
+        "shell",
+        "exec",
+        "eval",
+        "python_exec",
+        "sql_query",
+        "read_secrets",
+        "get_api_key",
+        "dump_env",
+        "write_authorized_keys"
+      ],
+      "allow_tools": [],
+      "deny_path_patterns": [],
+      "redact_patterns": []
+    },
+    "inbound": {
+      "mode": "enforce",
+      "tool_call_policy": "block",
+      "injection_patterns": [],
+      "secret_patterns": []
+    },
+    "metering": {
+      "tolerance": 0.25,
+      "min_absolute_delta": 8,
+      "fingerprint_sample_rate": 0.0,
+      "fingerprint_threshold": 0.35
+    }
+  },
+  "providers": [
+    {
+      "name": "naapi.cc",
+      "base_url": "https://naapi.cc/v1",
+      "protocol": "openai",
+      "supports": [
+        "openai",
+        "responses",
+        "anthropic"
+      ],
+      "trust": "untrusted",
+      "enabled": true,
+      "weight": 1,
+      "models": {
+        "gpt-5.6-sol": "gpt-5.6-sol",
+        "gpt-6-astra": "gpt-6-astra"
+      },
+      "keys": [
+        {
+          "name": "main",
+          "note": "CUSTOMS_PROVIDER_NAAPI_CC_KEY_MAIN_APIKEY"
+        }
+      ],
+      "discover": {
+        "enabled": true
+      },
+      "metadata": {
+        "measured": "2026-09-23: supports recorded from direct probes of each surface"
+      }
+    },
+    {
+      "name": "0egaeshop.xyz",
+      "base_url": "https://0egaeshop.xyz/v1",
+      "protocol": "openai",
+      "supports": [
+        "openai",
+        "responses"
+      ],
+      "trust": "untrusted",
+      "enabled": true,
+      "weight": 1,
+      "models": {
+        "gpt-5.6-sol": "gpt-5.6-sol",
+        "gpt-6-astra": "gpt-6-astra"
+      },
+      "keys": [
+        {
+          "name": "main",
+          "note": "CUSTOMS_PROVIDER_0EGAESHOP_XYZ_KEY_MAIN_APIKEY"
+        }
+      ],
+      "discover": {
+        "enabled": true
+      },
+      "metadata": {
+        "measured": "2026-09-23: supports recorded from direct probes of each surface"
+      }
+    },
+    {
+      "name": "vsllm.com",
+      "base_url": "https://vsllm.com/v1",
+      "protocol": "openai",
+      "supports": [
+        "openai",
+        "responses"
+      ],
+      "trust": "untrusted",
+      "enabled": true,
+      "weight": 1,
+      "models": {
+        "gpt-5.6-sol": "gpt-5.6-sol",
+        "gpt-6-astra": "gpt-6-astra"
+      },
+      "keys": [
+        {
+          "name": "main",
+          "note": "CUSTOMS_PROVIDER_VSLLM_COM_KEY_MAIN_APIKEY"
+        }
+      ],
+      "discover": {
+        "enabled": true
+      },
+      "metadata": {
+        "measured": "2026-09-23: supports recorded from direct probes of each surface"
+      }
+    }
+  ],
+  "users": [
+    {
+      "name": "admin",
+      "token": "CHANGE-ME-admin-token",
+      "quota": 0,
+      "period": "none",
+      "trust": "trusted",
+      "rate_limit": 0,
+      "max_concurrent": 0
+    },
+    {
+      "name": "probe",
+      "token": "CHANGE-ME-probe-token",
+      "quota": 0,
+      "period": "none",
+      "trust": "trusted",
+      "rate_limit": 0,
+      "max_concurrent": 0
+    },
+    {
+      "name": "alice",
+      "token": "CHANGE-ME-alice-token",
+      "quota": 50000000,
+      "period": "monthly",
+      "trust": "untrusted",
+      "rate_limit": 2,
+      "burst": 5,
+      "max_concurrent": 4,
+      "models": []
+    }
+  ],
+  "prices": [
+    {
+      "channel": "naapi.cc/main",
+      "model": "gpt-5.6-sol",
+      "price": {
+        "input_per_m": 0,
+        "output_per_m": 0,
+        "currency": "CNY",
+        "scheme": "flat"
+      }
+    },
+    {
+      "channel": "naapi.cc/main",
+      "model": "gpt-6-astra",
+      "price": {
+        "input_per_m": 0,
+        "output_per_m": 0,
+        "currency": "CNY",
+        "scheme": "flat"
+      }
+    },
+    {
+      "channel": "0egaeshop.xyz/main",
+      "model": "gpt-5.6-sol",
+      "price": {
+        "input_per_m": 0,
+        "output_per_m": 0,
+        "currency": "CNY",
+        "scheme": "flat"
+      }
+    },
+    {
+      "channel": "0egaeshop.xyz/main",
+      "model": "gpt-6-astra",
+      "price": {
+        "input_per_m": 0,
+        "output_per_m": 0,
+        "currency": "CNY",
+        "scheme": "flat"
+      }
+    },
+    {
+      "channel": "vsllm.com/main",
+      "model": "gpt-5.6-sol",
+      "price": {
+        "input_per_m": 0,
+        "output_per_m": 0,
+        "currency": "CNY",
+        "scheme": "flat"
+      }
+    },
+    {
+      "channel": "vsllm.com/main",
+      "model": "gpt-6-astra",
+      "price": {
+        "input_per_m": 0,
+        "output_per_m": 0,
+        "currency": "CNY",
+        "scheme": "flat"
+      }
+    }
+  ]
+}

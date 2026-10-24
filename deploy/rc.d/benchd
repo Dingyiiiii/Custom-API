@@ -1,0 +1,104 @@
+#!/bin/sh
+#
+# PROVIDE: benchd
+# REQUIRE: NETWORKING customsd
+# KEYWORD: shutdown
+#
+# Custom-API intelligence daemon: collects prices, runs the behavioural
+# fingerprint probes and the capability suite through the local gateway, then
+# folds the evidence into the routing scorecard.
+#
+# Enable it with:
+#
+#	benchd_enable="YES"
+#
+# Probe traffic is real traffic: it is authenticated as a dedicated "-probe"
+# user and therefore appears in the audit ledger, where its cost is visible and
+# separable from user spend.
+
+. /etc/rc.subr
+
+name="benchd"
+rcvar="benchd_enable"
+desc="Custom-API intelligence daemon"
+
+load_rc_config $name
+
+: ${benchd_enable:="NO"}
+: ${benchd_config:="/usr/local/etc/customapi/customs.json"}
+: ${benchd_service_user:="customapi"}
+: ${benchd_envfile:="/usr/local/etc/customapi/customsd.env"}
+: ${benchd_gateway:="http://127.0.0.1:8080"}
+: ${benchd_logdir:="/var/log/customapi"}
+: ${benchd_bin:="/usr/local/sbin/benchd"}
+: ${benchd_out:="/var/db/customapi/state"}
+: ${benchd_extra_flags:=""}
+
+# --- process identity -------------------------------------------------------
+#
+# The service user is held in ${name}_service_user, NOT ${name}_user: rc.subr
+# reads ${name}_user as an instruction to switch user with su(1) itself, which
+# would bypass daemon(8) and hand daemon's own flags to benchd.
+#
+# Every variable referenced by command_args is defined above it, because
+# expanding an undefined variable yields the empty string.
+#
+# shellcheck disable=SC2034  # consumed by rc.subr
+pidfile="/var/run/${name}.pid"
+command="/usr/sbin/daemon"
+procname="${benchd_bin}"
+
+command_args="-f -u ${benchd_service_user} -p ${pidfile} -o ${benchd_logdir}/${name}.log"
+# --out points at a writable state directory: the default is the configuration
+# directory, which the service user must not be able to write to.
+command_args="${command_args} ${benchd_bin} --config ${benchd_config} --gateway ${benchd_gateway} --out ${benchd_out}"
+if [ -n "${benchd_envfile}" ]; then
+	command_args="${command_args} --env-file ${benchd_envfile}"
+fi
+if [ -n "${benchd_extra_flags}" ]; then
+	command_args="${command_args} ${benchd_extra_flags}"
+fi
+command_args="${command_args} run"
+
+# --- lifecycle --------------------------------------------------------------
+
+start_precmd="benchd_prestart"
+stop_postcmd="benchd_poststop"
+
+benchd_prestart()
+{
+	# A previous failed start can leave an empty pidfile behind, which
+	# daemon(8) then reports as "already running, pid: -1" - a message that
+	# says nothing about the real problem. Clear only a pidfile that names no
+	# live process.
+	if [ -f "${pidfile}" ]; then
+		_pid=$(cat "${pidfile}" 2>/dev/null || echo "")
+		if [ -z "${_pid}" ] || ! kill -0 "${_pid}" 2>/dev/null; then
+			rm -f "${pidfile}"
+		fi
+	fi
+
+	if [ ! -f "${benchd_config}" ]; then
+		err 1 "${name}: configuration not found: ${benchd_config}"
+	fi
+	if [ ! -x "${benchd_bin}" ]; then
+		err 1 "${name}: binary not found or not executable: ${benchd_bin}"
+	fi
+	if ! id -u "${benchd_service_user}" >/dev/null 2>&1; then
+		err 1 "${name}: user does not exist: ${benchd_service_user}"
+	fi
+	install -d -o "${benchd_service_user}" -g "${benchd_service_user}" -m 0750 "${benchd_logdir}"
+	# The scorecard, fingerprint evidence and price catalogue live in a state
+	# directory owned by the service user, beside the audit ledger.
+	install -d -o "${benchd_service_user}" -g "${benchd_service_user}" -m 0750 /var/db/customapi
+	install -d -o "${benchd_service_user}" -g "${benchd_service_user}" -m 0750 "${benchd_out}"
+	return 0
+}
+
+benchd_poststop()
+{
+	rm -f "${pidfile}"
+	return 0
+}
+
+run_rc_command "$1"

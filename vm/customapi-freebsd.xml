@@ -1,0 +1,55 @@
+<domain type='kvm'>
+  <name>customapi-freebsd</name>
+  <title>Custom-API FreeBSD test environment (headless, serial console)</title>
+  <description>FreeBSD 15.1-RELEASE non-privileged test VM for the Custom-API gateway project. Managed by libvirt; console via: virsh -c qemu:///system console customapi-freebsd</description>
+  <memory unit='MiB'>4096</memory>
+  <currentMemory unit='MiB'>4096</currentMemory>
+  <vcpu placement='static'>4</vcpu>
+  <os>
+    <type arch='x86_64' machine='q35'>hvm</type>
+    <boot dev='hd'/>
+    <boot dev='cdrom'/>
+    <bootmenu enable='no'/>
+  </os>
+  <features>
+    <acpi/>
+    <apic/>
+  </features>
+  <cpu mode='host-passthrough' check='none' migratable='off'>
+    <topology sockets='1' dies='1' cores='4' threads='1'/>
+  </cpu>
+  <clock offset='utc'/>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>restart</on_crash>
+  <devices>
+    <emulator>/usr/bin/qemu-system-x86_64</emulator>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2' cache='writeback' discard='unmap'/>
+      <source file='/var/lib/libvirt/images/customapi/freebsd-customapi.qcow2'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+    <disk type='file' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <source file='/var/lib/libvirt/images/customapi/seed.iso'/>
+      <target dev='sda' bus='sata'/>
+      <readonly/>
+    </disk>
+    <controller type='virtio-serial' index='0'/>
+    <interface type='network'>
+      <mac address='52:54:00:ca:91:01'/>
+      <source network='customapi-net'/>
+      <model type='virtio'/>
+    </interface>
+    <serial type='pty'>
+      <target type='isa-serial' port='0'/>
+    </serial>
+    <console type='pty'>
+      <target type='serial' port='0'/>
+    </console>
+    <rng model='virtio'>
+      <backend model='random'>/dev/urandom</backend>
+    </rng>
+    <memballoon model='none'/>
+  </devices>
+</domain>

@@ -124,18 +124,13 @@ pub mod json {
     /// digits and no trailing zeros ("300", "1.25").
     fn format_fixed(value: u128, divisor: u128, decimals: u32) -> String {
         let whole = value / divisor;
-        let mut frac = value % divisor;
+        let frac = value % divisor;
         if frac == 0 {
             return whole.to_string();
         }
         let digits = format!("{:0width$}", frac, width = divisor.ilog10() as usize);
-        let mut digits = digits.as_str();
-        while digits.len() > decimals as usize {
-            digits = &digits[..digits.len() - 1];
-        }
+        let digits = &digits[..digits.len().min(decimals as usize)];
         let digits = digits.trim_end_matches('0');
-        frac = 0;
-        let _ = frac;
         if digits.is_empty() {
             whole.to_string()
         } else {
@@ -251,9 +246,21 @@ pub mod json {
                     f.write_str("a duration string like \"30s\" or a number of seconds")
                 }
                 fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Duration, E> {
-                    parse_duration(v)
-                        .map(Duration)
-                        .ok_or_else(|| E::custom(format!("invalid duration {:?}", v)))
+                    let trimmed = v.trim();
+                    // Go treats an empty string as zero, and accepts a bare
+                    // number of seconds as well as a unit-suffixed literal.
+                    if trimmed.is_empty() {
+                        return Ok(Duration(StdDuration::ZERO));
+                    }
+                    if let Some(d) = parse_duration(trimmed) {
+                        return Ok(Duration(d));
+                    }
+                    if let Ok(secs) = trimmed.parse::<f64>() {
+                        if secs.is_finite() && secs >= 0.0 {
+                            return Ok(Duration(StdDuration::from_secs_f64(secs)));
+                        }
+                    }
+                    Err(E::custom(format!("invalid duration {:?}", v)))
                 }
                 fn visit_string<E: serde::de::Error>(self, v: String) -> Result<Duration, E> {
                     self.visit_str(&v)

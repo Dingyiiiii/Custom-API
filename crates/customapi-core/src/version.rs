@@ -46,6 +46,10 @@ impl Identity {
 impl fmt::Display for Identity {
     /// Renders a one-line build identity, mirroring the Go `version.String()`:
     /// `customapi 0.1.0 (commit abc, built now, freebsd/amd64, rustc 1.99)`.
+    ///
+    /// The architecture is spelled the way Go spells it (amd64, arm64) so that
+    /// operators and scripts see the same identity whichever binary produced
+    /// it.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -54,9 +58,35 @@ impl fmt::Display for Identity {
             self.commit,
             self.build_time,
             std::env::consts::OS,
-            std::env::consts::ARCH,
+            go_arch_name(std::env::consts::ARCH),
             option_env!("CUSTOMS_RUSTC").unwrap_or("unknown"),
         )
+    }
+}
+
+/// Maps Rust's architecture names onto Go's `GOARCH` spellings.
+fn go_arch_name(arch: &str) -> &str {
+    match arch {
+        "x86_64" => "amd64",
+        "x86" => "386",
+        "aarch64" => "arm64",
+        other => other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn identity_names_the_go_architecture() {
+        assert_eq!(go_arch_name("x86_64"), "amd64");
+        assert_eq!(go_arch_name("aarch64"), "arm64");
+        assert_eq!(go_arch_name("riscv64"), "riscv64");
+        let line = identity();
+        assert!(line.starts_with("customapi "), "{line}");
+        assert!(line.contains("commit "), "{line}");
+        assert!(line.contains("rustc "), "{line}");
     }
 }
 

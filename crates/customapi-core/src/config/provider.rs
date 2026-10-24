@@ -392,9 +392,7 @@ pub fn expand_providers(config: &Config) -> Vec<Channel> {
                 .metadata
                 .insert("provider".to_string(), provider.name.clone());
             if !key.name.is_empty() {
-                channel
-                    .metadata
-                    .insert("key".to_string(), key.name.clone());
+                channel.metadata.insert("key".to_string(), key.name.clone());
             }
             channel.metadata.insert(
                 "protocols".to_string(),
@@ -422,7 +420,10 @@ fn weight_or(weight: f64) -> f64 {
 
 /// Overlays `b` onto a copy of `a`. Aliases win over model names, because an
 /// alias is the more specific operator intent.
-fn merge_string_maps(a: &HashMap<String, String>, b: &HashMap<String, String>) -> HashMap<String, String> {
+fn merge_string_maps(
+    a: &HashMap<String, String>,
+    b: &HashMap<String, String>,
+) -> HashMap<String, String> {
     if a.is_empty() && b.is_empty() {
         return HashMap::new();
     }
@@ -500,10 +501,7 @@ impl Config {
                 }
             }
             if !crate::config::trust_valid(provider.trust_level()) {
-                errors.push(format!(
-                    "{where_}: invalid trust {:?}",
-                    provider.trust
-                ));
+                errors.push(format!("{where_}: invalid trust {:?}", provider.trust));
             }
             let mut key_names: Vec<String> = Vec::new();
             for (j, key) in provider.keys.iter().enumerate() {
@@ -874,8 +872,14 @@ mod tests {
         let channels = expand_providers(&config);
         assert_eq!(channels[0].name, "vendor/a");
         assert_eq!(channels[1].name, "vendor/b");
-        assert_eq!(channels[0].metadata.get("key").map(String::as_str), Some("a"));
-        assert_eq!(channels[0].metadata.get("provider").map(String::as_str), Some("vendor"));
+        assert_eq!(
+            channels[0].metadata.get("key").map(String::as_str),
+            Some("a")
+        );
+        assert_eq!(
+            channels[0].metadata.get("provider").map(String::as_str),
+            Some("vendor")
+        );
     }
 
     #[test]
@@ -899,7 +903,10 @@ mod tests {
             .aliases
             .insert("gpt-4o".into(), "alias-4o".into());
         let channels = expand_providers(&config);
-        assert_eq!(channels[0].models.get("gpt-4o").map(String::as_str), Some("alias-4o"));
+        assert_eq!(
+            channels[0].models.get("gpt-4o").map(String::as_str),
+            Some("alias-4o")
+        );
     }
 
     #[test]
@@ -927,6 +934,145 @@ mod tests {
         assert_eq!(config.providers[0].keys[0].api_key, "sk-main");
     }
 
+    /// Mirrors Go's `TestProviderEnvNameAcceptsHostStyleNames`.
+    #[test]
+    fn provider_env_accepts_host_style_names() {
+        let mut config = Config {
+            providers: vec![
+                Provider {
+                    name: "naapi.cc".into(),
+                    base_url: "https://naapi.cc/v1".into(),
+                    keys: vec![ApiKey {
+                        name: "main".into(),
+                        ..ApiKey::default()
+                    }],
+                    ..Provider::default()
+                },
+                Provider {
+                    name: "0egaeshop.xyz".into(),
+                    base_url: "https://0egaeshop.xyz/v1".into(),
+                    keys: vec![ApiKey {
+                        name: "main".into(),
+                        ..ApiKey::default()
+                    }],
+                    ..Provider::default()
+                },
+                Provider {
+                    name: "vsllm.com".into(),
+                    base_url: "https://vsllm.com/v1".into(),
+                    keys: Vec::new(),
+                    ..Provider::default()
+                },
+            ],
+            ..Config::default()
+        };
+        config.apply_provider_env(&[
+            (
+                "CUSTOMS_PROVIDER_NAAPI_CC_KEY_MAIN_APIKEY".into(),
+                "sk-naapi".into(),
+            ),
+            (
+                "CUSTOMS_PROVIDER_0EGAESHOP_XYZ_KEY_MAIN_APIKEY".into(),
+                "sk-0ega".into(),
+            ),
+            (
+                "CUSTOMS_PROVIDER_VSLLM_COM_APIKEY".into(),
+                "sk-vsllm".into(),
+            ),
+        ]);
+        assert_eq!(config.providers[0].keys[0].api_key, "sk-naapi");
+        assert_eq!(config.providers[1].keys[0].api_key, "sk-0ega");
+        assert_eq!(config.providers[2].keys[0].api_key, "sk-vsllm");
+
+        // Channels are named after the provider, and that name reaches the
+        // audit ledger, so it must survive expansion verbatim.
+        let names: Vec<String> = config.all_channels().into_iter().map(|c| c.name).collect();
+        for want in ["naapi.cc/main", "0egaeshop.xyz/main", "vsllm.com"] {
+            assert!(
+                names.contains(&want.to_string()),
+                "missing {want}: {names:?}"
+            );
+        }
+    }
+
+    /// Mirrors Go's `TestUpstreamURLJoinsEitherBaseURLForm`.
+    #[test]
+    fn upstream_url_joins_either_base_url_form() {
+        let cases: &[(&str, &str, &str)] = &[
+            (
+                "https://naapi.cc",
+                "/v1/chat/completions",
+                "https://naapi.cc/v1/chat/completions",
+            ),
+            (
+                "https://naapi.cc/",
+                "/v1/chat/completions",
+                "https://naapi.cc/v1/chat/completions",
+            ),
+            (
+                "https://naapi.cc/v1",
+                "/v1/chat/completions",
+                "https://naapi.cc/v1/chat/completions",
+            ),
+            (
+                "https://naapi.cc/v1/",
+                "/v1/chat/completions",
+                "https://naapi.cc/v1/chat/completions",
+            ),
+            (
+                "https://naapi.cc/v1",
+                "/v1/models",
+                "https://naapi.cc/v1/models",
+            ),
+            (
+                "https://naapi.cc",
+                "/v1/models",
+                "https://naapi.cc/v1/models",
+            ),
+            (
+                "https://naapi.cc/v1",
+                "/v1/responses",
+                "https://naapi.cc/v1/responses",
+            ),
+            (
+                "https://naapi.cc/v1",
+                "/v1/messages",
+                "https://naapi.cc/v1/messages",
+            ),
+            (
+                "https://host/openai/v1",
+                "/v1/chat/completions",
+                "https://host/openai/v1/chat/completions",
+            ),
+            (
+                "https://host/openai",
+                "/v1/chat/completions",
+                "https://host/openai/v1/chat/completions",
+            ),
+            (
+                "https://host/api",
+                "/api/pricing",
+                "https://host/api/api/pricing",
+            ),
+            (
+                "https://host/v1",
+                "/chat/completions",
+                "https://host/v1/chat/completions",
+            ),
+            ("", "/v1/models", ""),
+            ("https://host/v1", "", "https://host/v1"),
+        ];
+        for (base, path, want) in cases {
+            assert_eq!(&upstream_url(base, path), want, "base={base} path={path}");
+        }
+        // Every combination must contain exactly one version segment, whatever
+        // the operator wrote.
+        for base in ["https://h", "https://h/", "https://h/v1", "https://h/v1/"] {
+            let got = upstream_url(base, "/v1/chat/completions");
+            assert_eq!(got.matches("/v1/").count(), 1, "{got}");
+        }
+    }
+
     #[test]
     fn upstream_url_does_not_double_the_version_segment() {
         assert_eq!(
@@ -950,7 +1096,10 @@ mod tests {
         let mut config = provider_config();
         config.providers[0].supports = vec!["openai".into(), "responses".into()];
         let channels = expand_providers(&config);
-        assert_eq!(channels[0].declared_protocols(), vec!["openai", "responses"]);
+        assert_eq!(
+            channels[0].declared_protocols(),
+            vec!["openai", "responses"]
+        );
         assert!(channels[0].declares_protocol("responses"));
         assert!(!channels[0].declares_protocol("anthropic"));
     }
