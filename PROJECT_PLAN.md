@@ -247,7 +247,7 @@ value = capability × fingerprint_match × reliability × usage_integrity² / �
 | 部署自检 | 已安装的那一份是否真的可用（服务、门禁、账本、控制台） | `deploy/scripts/verify-deployment.sh` |
 | 前端 | 令牌处理逻辑，Node 直接跑真实模块 | `web/scripts/check-auth.mjs` |
 
-本机基线：`cargo test --workspace --locked` **591 个测试通过**。
+本机基线：`cargo test --workspace --locked` **706 个测试通过**（内核 613 + 三个入口 93）。
 
 ---
 
@@ -262,12 +262,12 @@ value = capability × fingerprint_match × reliability × usage_integrity² / �
 | **M4 情报** | 取价 + 优惠建模 + 跑分 + 指纹 + 性价比分 + 反馈路由 | 已实现并验收 |
 | **M5 管理与用户面** | 管理 API、九页控制台、运维 CLI | 已实现并验收 |
 | **M6 真实渠道** | 多提供商配置、按 key 展开、故障转移、模型发现 | 已实现并验收 |
-| **R1 Rust 内核移植** | 11 个模块 + 配置/审计格式兼容 | 已完成（591 测试全绿） |
-| **R2 入口接线** | `customsd` / `benchd` / `customsctl` 的 CLI 与服务组装 | **进行中**（入口仍是占位实现） |
-| **R3 FreeBSD 重验收** | 用 Rust 二进制重跑 89 项 + 13 项 + 部署自检 | 待 R2 完成后执行 |
+| **R1 Rust 内核移植** | 11 个模块 + 配置/审计格式兼容 | 已完成（613 测试全绿） |
+| **R2 入口接线** | `customsd` / `benchd` / `customsctl` 的 CLI 与服务组装 | 已完成（两个监听器、信号处理、周期锚点、五个 benchd 任务、customsctl 全部子命令） |
+| **R3 FreeBSD 重验收** | 用 Rust 二进制重跑 89 项 + 13 项 + 部署自检 | **待做**（脚本已就绪，只差真机执行） |
 
-M1–M6 的"已验收"指 **Go 版**在 FreeBSD 15.1 上通过验收测试；Rust 版的验收以 R2 完成为
-前提。脚本、rc.d、安装器已按 Rust CLI（双横线长选项）改好，因此 R3 不需要改工具链。
+M1–M6 的"已验收"指 **Go 版**在 FreeBSD 15.1 上通过验收测试。Rust 版现在只差 R3：
+脚本、rc.d、安装器都已按 Rust CLI 改好，交叉构建的 C 工具链是这一步唯一的外部依赖。
 
 ---
 
@@ -310,7 +310,7 @@ M1–M6 的"已验收"指 **Go 版**在 FreeBSD 15.1 上通过验收测试；Rus
 | 审计存储膨胀 | 只追加、不轮转、按季度归档；归档文件可独立校验 |
 | 单机故障 | 审计账与锚点异地备份；锚点尽量写到另一台机器 |
 | 探测成本 | `probe` 用户独立记账；周期可调；必要时停 `benchd` |
-| 入口未接线（当前） | 库层与脚本层可验证；接线前不做生产部署（见第十二节 R2） |
+| FreeBSD 重验收未做（当前） | 入口已接线并在 Linux 上通过 706 项测试；真机验收前不做生产部署（见第十二节 R3） |
 
 ---
 

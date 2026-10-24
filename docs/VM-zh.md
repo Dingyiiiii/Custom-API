@@ -107,7 +107,7 @@ virsh -c qemu:///system net-list --all
 |---|---|---|
 | 域类型 | `kvm` | 宿主提供 `/dev/kvm` 时使用硬件加速 |
 | vCPU / 内存 | 4 / 4096 MiB | 与目标机（4C/8G）同量级；留出余量给宿主 |
-| 磁盘 | 60 GiB qcow2 覆盖层 | Rust 工具链来自 pkg（约 2 GiB 安装量）；`target/` 才是大头，本仓库调试构建实测 3.4 GiB，release 构建再加数 GiB |
+| 磁盘 | 60 GiB qcow2 覆盖层 | Rust 工具链来自 pkg；真正占空间的是 `target/`，本仓库调试构建实测 3.4 GiB，release 构建再加数 GiB |
 | 网络 | `customapi-net` NAT，固定 `10.77.30.31` | 与宿主上已有的 `openwrt-lan`（`192.168.122.0/24`）隔离，避免冲突 |
 | 显示 | 无（`--console` 串口） | 无头运行 |
 | 特权 | 无设备直通、无 `hostdev`、用户态网络 | 非特权测试环境 |

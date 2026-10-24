@@ -611,8 +611,8 @@ customsctl prices normalize --scheme per_request --per-request 0.5 \
 
 Rust 版用 `clap` 解析参数，**文档与脚本统一写双横线长选项**：`--config`、`--env-file`、
 `--listen`、`--admin-listen`、`--log-level`、`--version`、`--check`、
-`--anchor-interval`。这是与 Go 版最直观的差异——Go 的 `flag` 包只有单横线长选项
-（`-config`），Rust 侧的双横线是规范写法。
+`--anchor-interval`。这是与 Go 版最直观的差异：Go 的 `flag` 包习惯写单横线
+（`-config`，它其实也接受 `--config`），Rust 侧把双横线定成规范写法。
 
 为了让旧的 rc.d 行、cron 条目和运维肌肉记忆不至于立刻失效，三个二进制在解析前做了一次
 **窄范围的改写**：只把"已知长选项"的单个横线补成两个（`-config` → `--config`），

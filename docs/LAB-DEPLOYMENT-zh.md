@@ -247,9 +247,10 @@ sh /usr/local/share/customapi/intel-test.sh    # 13 项情报闭环
 > 证据库。安装器每次安装都会校正这些运行时文件的属主与权限，所以重跑一次
 > `install.sh` 即可；`audit rehash` 本身现在也会保留原属主。
 
-> Rust 版的 `customsctl` 与 `customsd` 一样使用**双横线长选项**
-> （`--config` / `--admin` / `--user` / `--quota`），Go 版的单横线写法在这里不成立。
-> 详见 `docs/DEPLOYMENT-zh.md` 第 4.1 节。
+> Rust 版的 `customsctl` 与 `customsd` 一样，规范写法是**双横线长选项**
+> （`--config` / `--admin` / `--user` / `--quota`），这是与 Go 版（`-config`）的差异。
+> 旧写法仍可用：解析前会把已知长选项的单横线补成双横线。详见
+> `docs/DEPLOYMENT-zh.md` 第 4.1 节。
 
 ---
 

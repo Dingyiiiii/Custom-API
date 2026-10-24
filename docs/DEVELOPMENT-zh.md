@@ -10,7 +10,7 @@
 | 构建网关 | Rust stable，由 `rust-toolchain.toml` 固定（组件 `rustfmt`、`clippy`；实测 rustc 1.99.1）；`Cargo.toml` 的 `rust-version = "1.89"` 是最低要求 |
 | 交叉构建 FreeBSD | `rustup target add x86_64-unknown-freebsd`，外加**目标平台的 C 工具链**：`ring` 会编译 C 与汇编，`export CC_x86_64_unknown_freebsd=<freebsd-cc>`（或用 `cargo-zigbuild`，或在 FreeBSD guest 里原生构建） |
 | 管理控制台 | Node.js + npm（Vue 3 + Vite + TypeScript，产物 `web/dist`） |
-| 构建测试虚拟机 | libvirt、QEMU、`mkisofs`（或 `xorriso`）、`xz`、`curl` |
+| 构建测试虚拟机 | libvirt、QEMU、`mkisofs`（seed ISO 用它生成）、`xz`、`curl` |
 | 目标机验收 | `curl`、`python3`（mock 上游），`jq` 可选（没有时验收脚本退到 python3） |
 | 可选 | `cargo-llvm-cov`（覆盖率；未装时 `make test-cover` 退化为跑一遍测试） |
 
