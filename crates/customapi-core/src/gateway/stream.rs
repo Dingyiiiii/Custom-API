@@ -30,7 +30,9 @@ use crate::policy;
 use crate::protocol;
 
 use super::helpers::LimiterGuard;
-use super::protocols::{channel_protocol, new_stream_accumulator, StreamAccumulator, ToolCallParts};
+use super::protocols::{
+    channel_protocol, new_stream_accumulator, StreamAccumulator, ToolCallParts,
+};
 use super::proxy::{ProxyContext, UpstreamBodyStream, UpstreamResponse};
 use super::Server;
 
@@ -261,7 +263,9 @@ impl Server {
         // needed here.
         let rendered = acc.render();
         if let Some(full) = rendered.as_deref() {
-            let decision = self.engine.check_inbound(Some(&inbound_from_body(&pc, full)));
+            let decision = self
+                .engine
+                .check_inbound(Some(&inbound_from_body(&pc, full)));
             if decision.findings.len() > pc.inbound_decision.findings.len() {
                 pc.inbound_decision = decision;
             }
@@ -307,16 +311,17 @@ impl Server {
                 }
                 None => {
                     let converted = match rendered.as_deref() {
-                        Some(full) => {
-                            protocol::translate_response_body(&upstream_protocol, &pc.protocol, full)
-                        }
+                        Some(full) => protocol::translate_response_body(
+                            &upstream_protocol,
+                            &pc.protocol,
+                            full,
+                        ),
                         None => Err(protocol::err_unsupported(&upstream_protocol, &pc.protocol)),
                     };
                     match converted {
                         Ok(converted) => out_events = vec![protocol::SseEvent::data(converted)],
                         Err(e) => {
-                            let message =
-                                format!("the streamed reply could not be converted: {e}");
+                            let message = format!("the streamed reply could not be converted: {e}");
                             self.finish_audit(
                                 &mut pc,
                                 audit::DECISION_UPSTREAM_ERROR,
@@ -430,7 +435,9 @@ fn inbound_from_body(pc: &ProxyContext, body: &[u8]) -> policy::InspectResponse 
             Err(_) => empty("responses"),
         },
         _ => match serde_json::from_slice::<protocol::ChatResponse>(body) {
-            Ok(parsed) => policy::inspect_response_from_openai(&pc.channel.name, trusted, Some(&parsed)),
+            Ok(parsed) => {
+                policy::inspect_response_from_openai(&pc.channel.name, trusted, Some(&parsed))
+            }
             Err(_) => empty("openai"),
         },
     }

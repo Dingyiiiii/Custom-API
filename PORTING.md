@@ -102,3 +102,31 @@ Go 的 `encoding/json` 行为必须在 Rust 侧复现：
 4. `cargo test` 结果（原样粘贴最后几行）；
 5. 与 Go 行为的偏差（如果有，必须显式列出原因），以及未完成项；
 6. 需要主控处理的依赖/Cargo.toml 变更。
+
+## 8. 已知偏差（实现完成后的记录）
+
+移植过程中刻意保留、或无法等价的差异，按影响面排序：
+
+1. **JSON 数值与时间写法**：core 的 `json::{GoFloat, GoTime, format_go_f64}` 已让整数浮点写
+   `40` 而不是 `40.0`、时间写 RFC3339Nano 去尾零（`.5Z`），审计账本、state、目录、
+   管理 API 都已挂上，因此 Rust 写出的账本能被 Go 版 `customsctl audit verify` 校验，
+   反之亦然。残余差异：NaN/Inf 在 Go 里是序列化错误，这里写 `null`。
+2. **HTML 转义**：Go 的 `encoding/json` 把 `<` `>` `&` 转成 `\u003c` 等，serde_json 不转。
+   只影响"翻译产物"，转发路径不重新编码，用户收到的字节不受影响。
+3. **JSON 解码宽松度**：Go 字段名大小写不敏感、重复键后者胜；serde 精确匹配、重复键报错。
+   标准客户端不受影响。
+4. **`metadata` 的 nil 与空 map**：Go 用 nil 表示"直连通道信任任意协议"、显式 `{}` 表示
+   "声明为空"；Rust 的 `HashMap` 无法区分，按"缺失=信任"处理（与常见配置一致）。
+5. **错误文本内层**：外层前缀、错误码、HTTP 状态逐字对齐；内层细节来自 serde_json /
+   reqwest / std::io，与 encoding/json / net/http / os 的措辞不同。
+6. **时区**：`chrono::FixedOffset` 只支持固定偏移，Go 的 `*time.Location` 支持夏令时；
+   优惠的低谷时段窗口按固定偏移计算。
+7. **负 Duration**：Go 的 `ParseDuration` 接受 `-30s`，Rust 配置层拒绝（负超时无意义）。
+8. **CLI 长选项**：规范写法是双横线（`--config`），并保留一层窄兼容：已知长选项的单横线
+   写法会被补成双横线，所以 Go 时代的脚本仍然可用。
+9. **管理面门禁依赖 peer 地址**：core 的 `Server::admin_handler()` 从
+   `ConnectInfo<SocketAddr>` 取调用者地址，服务端必须用
+   `into_make_service_with_connect_info::<SocketAddr>()`（`customsd` 已这样做），
+   否则所有 `/admin/*` 会被当成远程调用者拒绝。
+10. **`customsctl audit rehash`**：Go 版在"链损坏 + 锚点过期"组合下会把 anchor 移动两次而
+    以 rc=1 结束（修复已完成但退出码误导）；Rust 按实际结果返回 rc=0 并打印新的锚点位置。

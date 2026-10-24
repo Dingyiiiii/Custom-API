@@ -74,6 +74,11 @@ fn go_arch_name(arch: &str) -> &str {
     }
 }
 
+/// Returns the one-line build identity, mirroring `version.String()`.
+pub fn identity() -> String {
+    Identity::current().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -88,9 +93,4 @@ mod tests {
         assert!(line.contains("commit "), "{line}");
         assert!(line.contains("rustc "), "{line}");
     }
-}
-
-/// Returns the one-line build identity, mirroring `version.String()`.
-pub fn identity() -> String {
-    Identity::current().to_string()
 }

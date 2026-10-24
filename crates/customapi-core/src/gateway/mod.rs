@@ -142,7 +142,10 @@ impl Stats {
     /// snapshot is a `BTreeMap` here for the same stable output.
     pub fn snapshot(&self) -> BTreeMap<String, i64> {
         let mut out = BTreeMap::new();
-        out.insert("requests".to_string(), self.requests.load(Ordering::Relaxed));
+        out.insert(
+            "requests".to_string(),
+            self.requests.load(Ordering::Relaxed),
+        );
         out.insert(
             "blocked_outbound".to_string(),
             self.blocked_outbound.load(Ordering::Relaxed),
@@ -171,7 +174,10 @@ impl Stats {
             "degraded".to_string(),
             self.degraded.load(Ordering::Relaxed),
         );
-        out.insert("bytes_in".to_string(), self.bytes_in.load(Ordering::Relaxed));
+        out.insert(
+            "bytes_in".to_string(),
+            self.bytes_in.load(Ordering::Relaxed),
+        );
         out.insert(
             "bytes_out".to_string(),
             self.bytes_out.load(Ordering::Relaxed),
@@ -685,7 +691,11 @@ async fn with_access_log(State(server): State<Arc<Server>>, req: Request, next: 
 /// to ask for the credential, so a remote operator could never authenticate. The
 /// shell is a static bundle containing no configuration, no credentials and no
 /// data; every byte of actual content comes from `/admin/*`, which is gated.
-async fn with_admin_access(State(server): State<Arc<Server>>, req: Request, next: Next) -> Response {
+async fn with_admin_access(
+    State(server): State<Arc<Server>>,
+    req: Request,
+    next: Next,
+) -> Response {
     let path = req.uri().path().to_string();
     let peer = peer_addr(&req);
     if let Some(refusal) = server.admin_gate(&path, peer, req.headers()) {
@@ -801,7 +811,12 @@ pub(crate) fn json_error(status: StatusCode, code: &str, message: &str) -> Respo
 
 /// Emits an error envelope that also carries the audit id, so a user can quote it
 /// and an operator can find the evidence.
-pub(crate) fn audit_error(status: StatusCode, code: &str, message: &str, record_id: &str) -> Response {
+pub(crate) fn audit_error(
+    status: StatusCode,
+    code: &str,
+    message: &str,
+    record_id: &str,
+) -> Response {
     let payload = serde_json::json!({
         "customs_audit_id": record_id,
         "error": { "code": code, "message": message, "type": code },
@@ -815,7 +830,16 @@ pub(crate) fn audit_error(status: StatusCode, code: &str, message: &str, record_
 
 /// Renders a JSON response the way Go's `json.Encoder` does, including the
 /// trailing newline.
-pub(crate) fn json_response(status: StatusCode, value: &serde_json::Value) -> Response {
+///
+/// It takes anything serialisable rather than a `Value` so a handler can hand
+/// over a typed payload: a `Value` stores floats as `f64` and would write `40.0`
+/// where Go writes `40`, while a typed payload with the Go-aware number helpers
+/// renders the Go bytes. Both work at the call site, since `Value` itself is
+/// `Serialize`.
+pub(crate) fn json_response<T>(status: StatusCode, value: &T) -> Response
+where
+    T: serde::Serialize + ?Sized,
+{
     let mut body = serde_json::to_vec(value).unwrap_or_else(|_| b"null".to_vec());
     body.push(b'\n');
     Response::builder()

@@ -127,14 +127,33 @@ fn estimator_calibration_parity() {
         ("AbC 123 xyz", 3, 3, 3, 3),
     ];
     for (text, o200k, claude, cl100k, generic) in cases {
-        assert_eq!(Estimator::new(FAMILY_O200K).estimate(text), o200k, "o200k {text:?}");
-        assert_eq!(Estimator::new(FAMILY_CLAUDE).estimate(text), claude, "claude {text:?}");
-        assert_eq!(Estimator::new(FAMILY_CL100K).estimate(text), cl100k, "cl100k {text:?}");
-        assert_eq!(Estimator::new(FAMILY_GENERIC).estimate(text), generic, "generic {text:?}");
+        assert_eq!(
+            Estimator::new(FAMILY_O200K).estimate(text),
+            o200k,
+            "o200k {text:?}"
+        );
+        assert_eq!(
+            Estimator::new(FAMILY_CLAUDE).estimate(text),
+            claude,
+            "claude {text:?}"
+        );
+        assert_eq!(
+            Estimator::new(FAMILY_CL100K).estimate(text),
+            cl100k,
+            "cl100k {text:?}"
+        );
+        assert_eq!(
+            Estimator::new(FAMILY_GENERIC).estimate(text),
+            generic,
+            "generic {text:?}"
+        );
     }
     // Go charges an invalid byte as three bytes of U+FFFD classified as
     // punctuation, i.e. 2 tokens for two stray bytes.
-    assert_eq!(Estimator::new(FAMILY_O200K).estimate_bytes(&[0xFF, 0xFE]), 2);
+    assert_eq!(
+        Estimator::new(FAMILY_O200K).estimate_bytes(&[0xFF, 0xFE]),
+        2
+    );
 }
 
 /// Translated from `TestEstimatorMonotonic`.
@@ -799,7 +818,10 @@ fn estimate_bytes_handles_invalid_utf8() {
         est.estimate_bytes(&[0xFF, 0xFE]),
         est.estimate("\u{FFFD}\u{FFFD}")
     );
-    assert_eq!(est.estimate_bytes("hello".as_bytes()), est.estimate("hello"));
+    assert_eq!(
+        est.estimate_bytes("hello".as_bytes()),
+        est.estimate("hello")
+    );
 }
 
 /// A large body must stay linear and not overflow the run accumulator.
@@ -808,7 +830,10 @@ fn estimate_handles_megabyte_input() {
     let est = Estimator::for_model("gpt-4o");
     let text = "The quick brown fox jumps over the lazy dog. ".repeat(20_000);
     let n = est.estimate(&text);
-    assert!(n > 100_000, "1 MiB of prose should be > 100k tokens, got {n}");
+    assert!(
+        n > 100_000,
+        "1 MiB of prose should be > 100k tokens, got {n}"
+    );
     // Monotonic in the number of repetitions.
     let smaller = est.estimate(&"The quick brown fox jumps over the lazy dog. ".repeat(10_000));
     assert!(n > smaller);
@@ -950,7 +975,10 @@ fn count_response_responses_counts_message_reasoning_and_function_call() {
     let n1 = count_response_responses("gpt-4o", Some(&base));
     let n2 = count_response_responses("gpt-4o", Some(&rich));
     assert!(n1 > 0);
-    assert!(n2 > n1, "reasoning and calls should add tokens: {n1} -> {n2}");
+    assert!(
+        n2 > n1,
+        "reasoning and calls should add tokens: {n1} -> {n2}"
+    );
 }
 
 #[test]
@@ -1053,7 +1081,10 @@ fn counting_helpers_match_go() {
             {"type":"tool_use","name":"calc","input":{"expr":"6*7"}}]}"#,
     )
     .unwrap();
-    assert_eq!(count_response_anthropic("claude-3-5-sonnet", Some(&anth_resp)), 15);
+    assert_eq!(
+        count_response_anthropic("claude-3-5-sonnet", Some(&anth_resp)),
+        15
+    );
 
     let resp_req: ResponsesRequest = serde_json::from_str(
         r#"{"model":"gpt-4o","instructions":"be brief",

@@ -132,10 +132,7 @@ async fn serve_file(path: &Path) -> Response {
     match tokio::fs::read(path).await {
         Ok(bytes) => Response::builder()
             .status(StatusCode::OK)
-            .header(
-                axum::http::header::CONTENT_TYPE,
-                "text/html; charset=utf-8",
-            )
+            .header(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")
             // The shell must not be cached: it references hashed asset names that
             // change on every build, and a stale shell 404s its own assets.
             .header(axum::http::header::CACHE_CONTROL, "no-cache")
@@ -152,10 +149,7 @@ async fn serve_file(path: &Path) -> Response {
 fn serve_web_placeholder() -> Response {
     Response::builder()
         .status(StatusCode::OK)
-        .header(
-            axum::http::header::CONTENT_TYPE,
-            "text/html; charset=utf-8",
-        )
+        .header(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")
         .body(Body::from(PLACEHOLDER_HTML))
         .unwrap_or_else(|_| Response::new(Body::empty()))
 }
@@ -241,7 +235,10 @@ mod tests {
 
     #[test]
     fn content_types_cover_the_bundle() {
-        assert_eq!(content_type_for(Path::new("index.html")), "text/html; charset=utf-8");
+        assert_eq!(
+            content_type_for(Path::new("index.html")),
+            "text/html; charset=utf-8"
+        );
         assert_eq!(
             content_type_for(Path::new("assets/index-abc.js")),
             "text/javascript; charset=utf-8"

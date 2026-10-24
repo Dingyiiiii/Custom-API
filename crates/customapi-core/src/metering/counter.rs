@@ -82,7 +82,11 @@ pub fn clamp_finite(v: f64) -> f64 {
         return 0.0;
     }
     if v.is_infinite() {
-        return if v > 0.0 { MAX_FINITE_DELTA } else { -MAX_FINITE_DELTA };
+        return if v > 0.0 {
+            MAX_FINITE_DELTA
+        } else {
+            -MAX_FINITE_DELTA
+        };
     }
     v
 }

@@ -23,9 +23,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::Serialize;
 
-use super::ledger::{
-    compute_hash, read_all, AuditError, Record, GENESIS_HASH,
-};
+use super::ledger::{compute_hash, read_all, AuditError, Record, GENESIS_HASH};
 
 /// Summarises a chain rebuild.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
@@ -77,8 +75,8 @@ pub fn rehash(path: &str) -> Result<RehashResult, AuditError> {
         ..Default::default()
     };
     let dir = parent_of(path);
-    let (tmp_path, tmp_file) = create_temp(&dir, ".rehash-")
-        .map_err(|e| AuditError::io("create temp", e))?;
+    let (tmp_path, tmp_file) =
+        create_temp(&dir, ".rehash-").map_err(|e| AuditError::io("create temp", e))?;
 
     let head = match write_rehashed(tmp_file, &mut records, &mut res) {
         Ok(head) => head,
@@ -145,9 +143,9 @@ fn write_rehashed(
         res.records = rec.seq;
     }
     w.flush().map_err(|e| AuditError::io("flush", e))?;
-    let file = w.into_inner().map_err(|e| {
-        AuditError::io("flush", e.into_error())
-    })?;
+    let file = w
+        .into_inner()
+        .map_err(|e| AuditError::io("flush", e.into_error()))?;
     file.sync_all().map_err(|e| AuditError::io("sync", e))?;
     drop(file);
     Ok(prev)

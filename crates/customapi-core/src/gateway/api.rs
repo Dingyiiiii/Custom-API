@@ -18,7 +18,7 @@ use chrono::{DateTime, Utc};
 use crate::audit;
 use crate::discovery;
 use crate::meter;
-use crate::route::ScoreBook;
+use crate::route::{self, ScoreBook};
 use crate::store;
 use crate::version;
 
@@ -93,7 +93,9 @@ fn redirect(method: &axum::http::Method, target: &str) -> Response {
     let mut response = Response::new(Body::empty());
     *response.status_mut() = status;
     if let Ok(value) = HeaderValue::from_str(target) {
-        response.headers_mut().insert(axum::http::header::LOCATION, value);
+        response
+            .headers_mut()
+            .insert(axum::http::header::LOCATION, value);
     }
     response
 }
@@ -110,7 +112,11 @@ pub(crate) async fn handle_health(State(server): State<Arc<Server>>) -> Response
 /// `GET /readyz`.
 pub(crate) async fn handle_ready(State(server): State<Arc<Server>>) -> Response {
     if server.is_ready() {
-        return bytes_response(StatusCode::OK, "text/plain; charset=utf-8", b"ready\n".to_vec());
+        return bytes_response(
+            StatusCode::OK,
+            "text/plain; charset=utf-8",
+            b"ready\n".to_vec(),
+        );
     }
     json_error(
         StatusCode::SERVICE_UNAVAILABLE,
@@ -197,7 +203,7 @@ pub(crate) async fn handle_models(State(server): State<Arc<Server>>, req: Reques
                 "protocols": view.protocols,
                 "configured": view.configured,
                 "cheapest": view.cheapest,
-                "unit_price": view.unit_price,
+                "unit_price": crate::json::GoFloat(view.unit_price),
                 "currency": view.currency,
             })
         } else {
@@ -221,20 +227,24 @@ pub(crate) async fn handle_models(State(server): State<Arc<Server>>, req: Reques
 pub(crate) async fn handle_my_usage(State(server): State<Arc<Server>>, req: Request) -> Response {
     let token = bearer_token(req.headers());
     let Some(user) = server.config().user_by_token(&token) else {
-        return json_error(StatusCode::UNAUTHORIZED, "invalid_api_key", "invalid API key");
+        return json_error(
+            StatusCode::UNAUTHORIZED,
+            "invalid_api_key",
+            "invalid API key",
+        );
     };
     let state = server.store().get(&user.name).unwrap_or_default();
     let payload = serde_json::json!({
         "consumed": state.consumed,
         "currency": state.currency,
-        "last_seen": state.last_seen,
+        "last_seen": crate::json::GoTime(state.last_seen),
         "lifetime_consumed": state.lifetime_consumed,
         "period": state.period,
-        "period_start": state.period_start,
+        "period_start": crate::json::GoTime(state.period_start),
         "quota": state.quota,
         "remaining": state.remaining(),
         "requests": state.requests,
-        "spend": state.spend,
+        "spend": crate::json::GoFloat(state.spend),
         "unlimited": state.quota <= 0,
         "user": state.name,
     });
@@ -277,7 +287,7 @@ pub(crate) async fn handle_config_summary(State(server): State<Arc<Server>>) -> 
             "protocol": channel.protocol,
             "trust": channel.trust_level(),
             "enabled": channel.is_enabled(),
-            "weight": channel.weight,
+            "weight": crate::json::GoFloat(channel.weight),
             "has_key": !channel.api_key.is_empty(),
             "models": models,
         }));
@@ -290,7 +300,7 @@ pub(crate) async fn handle_config_summary(State(server): State<Arc<Server>>) -> 
             "inbound_rules": server.engine().inbound_rule_count(),
             "outbound_mode": cfg.policy.outbound.mode,
             "outbound_rules": server.engine().outbound_rule_count(),
-            "tolerance": cfg.policy.metering.tolerance,
+            "tolerance": crate::json::GoFloat(cfg.policy.metering.tolerance),
             "tool_policy": cfg.policy.inbound.tool_call_policy,
         },
         "server": {
@@ -579,47 +589,77 @@ pub(crate) async fn handle_usage(State(server): State<Arc<Server>>, req: Request
 // Prices
 // ---------------------------------------------------------------------------
 
+/// One row of the price table, shaped like the Go handler's local `row` struct.
+///
+/// A typed response keeps the bytes identical to the Go build: the field order is
+/// the struct's, `scheme` and `source` disappear when empty because their Go tags
+/// carry `omitempty`, and the three rates are floats that Go writes without a
+/// trailing `.0`.
+#[derive(serde::Serialize)]
+struct PriceRow {
+    channel: String,
+    model: String,
+    trust: String,
+    #[serde(serialize_with = "crate::json::go_f64")]
+    input_per_m: f64,
+    #[serde(serialize_with = "crate::json::go_f64")]
+    output_per_m: f64,
+    #[serde(serialize_with = "crate::json::go_f64")]
+    effective_unit_price: f64,
+    currency: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    scheme: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    source: String,
+}
+
+/// The `/admin/prices` envelope.
+#[derive(serde::Serialize)]
+struct PricesView {
+    /// Go declares `var rows []row`, so an empty catalogue serialises as `null`.
+    #[serde(serialize_with = "crate::json::go_slice_or_null")]
+    prices: Vec<PriceRow>,
+}
+
 /// `GET /admin/prices`.
 pub(crate) async fn handle_prices(State(server): State<Arc<Server>>) -> Response {
     let cfg = server.config();
     let now = Utc::now();
     let pricer = server.pricer();
     let location = pricer.location();
-    let mut rows: Vec<serde_json::Value> = Vec::new();
+    let mut rows: Vec<PriceRow> = Vec::new();
     for channel in cfg.all_channels() {
         for model in pricer.models(&channel.name) {
             let Some(price) = pricer.lookup(&channel.name, &model) else {
                 continue;
             };
-            rows.push(serde_json::json!({
-                "channel": channel.name,
-                "model": model,
-                "trust": channel.trust_level(),
-                "input_per_m": price.input_per_m,
-                "output_per_m": price.output_per_m,
-                "effective_unit_price": meter::effective_unit_price(
+            rows.push(PriceRow {
+                channel: channel.name.clone(),
+                model,
+                trust: channel.trust_level().to_string(),
+                input_per_m: price.input_per_m,
+                output_per_m: price.output_per_m,
+                effective_unit_price: meter::effective_unit_price(
                     &price,
                     meter::Tokens::default(),
                     now,
                     Some(location),
                 ),
-                "currency": price.currency,
-                "scheme": price.scheme,
-                "source": price.source,
-            }));
+                currency: price.currency.clone(),
+                scheme: price.scheme.clone(),
+                source: price.source.clone(),
+            });
         }
     }
+    // Go sorts by model, then by unit price.
     rows.sort_by(|a, b| {
-        let am = a["model"].as_str().unwrap_or("");
-        let bm = b["model"].as_str().unwrap_or("");
-        if am != bm {
-            return am.cmp(bm);
-        }
-        let au = a["effective_unit_price"].as_f64().unwrap_or(0.0);
-        let bu = b["effective_unit_price"].as_f64().unwrap_or(0.0);
-        au.partial_cmp(&bu).unwrap_or(std::cmp::Ordering::Equal)
+        a.model.cmp(&b.model).then_with(|| {
+            a.effective_unit_price
+                .partial_cmp(&b.effective_unit_price)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     });
-    json_response(StatusCode::OK, &serde_json::json!({ "prices": rows }))
+    json_response(StatusCode::OK, &PricesView { prices: rows })
 }
 
 /// Answers "what would this cost, and which channel is cheapest" for a concrete
@@ -638,15 +678,12 @@ pub(crate) async fn handle_price_compare(
             at = parsed.with_timezone(&Utc);
         }
     }
-    let tokens = meter::Tokens {
-        input,
-        output,
-    };
+    let tokens = meter::Tokens { input, output };
 
     let cfg = server.config();
     let pricer = server.pricer();
     let location = pricer.location();
-    let mut offers: Vec<serde_json::Value> = Vec::new();
+    let mut offers: Vec<CompareOffer> = Vec::new();
     for channel in cfg.all_channels() {
         if !channel.is_enabled() {
             continue;
@@ -663,34 +700,69 @@ pub(crate) async fn handle_price_compare(
         } else {
             0.0
         };
-        offers.push(serde_json::json!({
-            "channel": channel.name,
-            "currency": quote.currency,
-            "cost": quote.cost,
-            "list_cost": quote.list_cost,
-            "discount_pct": quote.discount_pct,
-            "unit_price": unit,
-            "promotions": quote.applied,
-            "trust": channel.trust_level(),
-        }));
+        offers.push(CompareOffer {
+            channel: channel.name.clone(),
+            currency: quote.currency.clone(),
+            cost: quote.cost,
+            list_cost: quote.list_cost,
+            discount_pct: quote.discount_pct,
+            unit_price: unit,
+            promotions: quote.applied.clone(),
+            trust: channel.trust_level().to_string(),
+        });
     }
+    // Go sorts the offers by cost, ascending.
     offers.sort_by(|a, b| {
-        let ac = a["cost"].as_f64().unwrap_or(0.0);
-        let bc = b["cost"].as_f64().unwrap_or(0.0);
-        ac.partial_cmp(&bc).unwrap_or(std::cmp::Ordering::Equal)
+        a.cost
+            .partial_cmp(&b.cost)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    let mut payload = serde_json::json!({
-        "at": at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-        "input_tokens": input,
-        "model": model,
-        "offers": offers,
-        "output_tokens": output,
-    });
-    if let Some(first) = offers.first() {
-        payload["cheapest"] = first["channel"].clone();
-    }
-    json_response(StatusCode::OK, &payload)
+    // Go builds this payload as a map, so its members come out sorted; the
+    // cheapest channel is only present when at least one offer was priced.
+    let view = CompareView {
+        at: at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        cheapest: offers.first().map(|offer| offer.channel.clone()),
+        input_tokens: input,
+        model,
+        offers,
+        output_tokens: output,
+    };
+    json_response(StatusCode::OK, &view)
+}
+
+/// One priced channel in the comparison view, shaped like Go's `offer` struct.
+#[derive(serde::Serialize)]
+struct CompareOffer {
+    channel: String,
+    currency: String,
+    #[serde(serialize_with = "crate::json::go_f64")]
+    cost: f64,
+    #[serde(serialize_with = "crate::json::go_f64")]
+    list_cost: f64,
+    #[serde(serialize_with = "crate::json::go_f64")]
+    discount_pct: f64,
+    #[serde(serialize_with = "crate::json::go_f64")]
+    unit_price: f64,
+    /// Go's tag carries `omitempty`, and a Go slice of applied promotions is nil
+    /// unless one fired, so both cases render as absent.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    promotions: Vec<meter::AppliedPromotion>,
+    trust: String,
+}
+
+/// The `/admin/prices/compare` envelope, in Go's sorted-key order.
+#[derive(serde::Serialize)]
+struct CompareView {
+    at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cheapest: Option<String>,
+    input_tokens: i64,
+    model: String,
+    /// Go declares `var offers []offer`, so "no channel can serve this" is `null`.
+    #[serde(serialize_with = "crate::json::go_slice_or_null")]
+    offers: Vec<CompareOffer>,
+    output_tokens: i64,
 }
 
 // ---------------------------------------------------------------------------
@@ -701,7 +773,7 @@ pub(crate) async fn handle_price_compare(
 pub(crate) async fn handle_scores(State(server): State<Arc<Server>>) -> Response {
     let cfg = server.config();
     let pricer = server.pricer();
-    let mut rows: Vec<serde_json::Value> = Vec::new();
+    let mut rows: Vec<ScoreRow> = Vec::new();
     for channel in cfg.all_channels() {
         let mut models: BTreeMap<String, ()> = BTreeMap::new();
         for model in pricer.models(&channel.name) {
@@ -712,26 +784,38 @@ pub(crate) async fn handle_scores(State(server): State<Arc<Server>>) -> Response
         }
         for model in models.keys() {
             if let Some(scores) = server.scores().score(&channel.name, model) {
-                rows.push(serde_json::json!({
-                    "channel": channel.name,
-                    "model": model,
-                    "scores": scores,
-                }));
+                rows.push(ScoreRow {
+                    channel: channel.name.clone(),
+                    model: model.clone(),
+                    scores,
+                });
             }
         }
     }
+    // Go sorts by model, then by channel.
     rows.sort_by(|a, b| {
-        let am = a["model"].as_str().unwrap_or("");
-        let bm = b["model"].as_str().unwrap_or("");
-        if am != bm {
-            return am.cmp(bm);
-        }
-        a["channel"]
-            .as_str()
-            .unwrap_or("")
-            .cmp(b["channel"].as_str().unwrap_or(""))
+        a.model
+            .cmp(&b.model)
+            .then_with(|| a.channel.cmp(&b.channel))
     });
-    json_response(StatusCode::OK, &serde_json::json!({ "scores": rows }))
+    json_response(StatusCode::OK, &ScoresView { scores: rows })
+}
+
+/// One row of the scorecard view: a channel/model pair and its scores.
+#[derive(serde::Serialize)]
+struct ScoreRow {
+    channel: String,
+    model: String,
+    /// `route::Scores` writes its floats and timestamp the way Go does.
+    scores: route::Scores,
+}
+
+/// The `/admin/scores` envelope.
+#[derive(serde::Serialize)]
+struct ScoresView {
+    /// Go declares `var rows []row`, so "nothing measured yet" is `null`.
+    #[serde(serialize_with = "crate::json::go_slice_or_null")]
+    scores: Vec<ScoreRow>,
 }
 
 /// Reports the model-identity evidence collected from audit.
@@ -779,14 +863,11 @@ pub(crate) async fn handle_fingerprints(State(server): State<Arc<Server>>) -> Re
                 "model": a.model,
                 "checked": a.checked,
                 "mismatch": a.mismatch,
-                "mean_score": a.mean_score,
+                "mean_score": crate::json::GoFloat(a.mean_score),
             })
         })
         .collect();
-    json_response(
-        StatusCode::OK,
-        &serde_json::json!({ "fingerprints": out }),
-    )
+    json_response(StatusCode::OK, &serde_json::json!({ "fingerprints": out }))
 }
 
 // ---------------------------------------------------------------------------
@@ -806,12 +887,8 @@ impl Server {
             let Some(price) = self.pricer.lookup(&candidate.channel, &view.model) else {
                 continue;
             };
-            let unit = meter::effective_unit_price(
-                &price,
-                meter::Tokens::default(),
-                now,
-                Some(location),
-            );
+            let unit =
+                meter::effective_unit_price(&price, meter::Tokens::default(), now, Some(location));
             if unit <= 0.0 {
                 continue;
             }
@@ -848,10 +925,7 @@ impl Query {
                     Some((key, value)) => (key, value),
                     None => (pair, ""),
                 };
-                pairs.push((
-                    percent_decode(key),
-                    percent_decode(value),
-                ));
+                pairs.push((percent_decode(key), percent_decode(value)));
             }
         }
         Query { pairs }
@@ -975,9 +1049,19 @@ mod tests {
             ..audit::Record::default()
         };
         let records = vec![record("alice", "a"), record("bob", "b")];
-        let filtered = filter_records(records.clone(), Some("alice".into()), None, None, None, None);
+        let filtered = filter_records(
+            records.clone(),
+            Some("alice".into()),
+            None,
+            None,
+            None,
+            None,
+        );
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].actor, "alice");
-        assert_eq!(filter_records(records, None, None, None, None, None).len(), 2);
+        assert_eq!(
+            filter_records(records, None, None, None, None, None).len(),
+            2
+        );
     }
 }

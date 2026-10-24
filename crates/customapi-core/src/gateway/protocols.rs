@@ -92,7 +92,11 @@ pub(crate) fn provider_out_of_credit(body: &[u8]) -> bool {
     }
     // Only scan a bounded prefix: an error body is short, and this runs on the
     // request path.
-    let body = if body.len() > 4096 { &body[..4096] } else { body };
+    let body = if body.len() > 4096 {
+        &body[..4096]
+    } else {
+        body
+    };
     let text = String::from_utf8_lossy(body).to_ascii_lowercase();
     const MARKERS: [&str; 12] = [
         "insufficient_user_quota",
@@ -201,10 +205,7 @@ impl std::fmt::Display for RebuildError {
 impl super::Server {
     /// Recomputes the forwarded body for the current channel, applying model
     /// renaming and any required protocol translation.
-    pub(crate) fn rebuild_forward_body(
-        &self,
-        pc: &mut ProxyContext,
-    ) -> Result<(), RebuildError> {
+    pub(crate) fn rebuild_forward_body(&self, pc: &mut ProxyContext) -> Result<(), RebuildError> {
         let cfg = self.config();
         let mut body = pc.body.clone();
         let upstream_protocol = channel_protocol(&pc.channel).to_string();
@@ -233,15 +234,13 @@ impl super::Server {
                     pc.channel.name, upstream_protocol, pc.protocol
                 )));
             }
-            let translated = protocol::translate_request_body(
-                &pc.protocol,
-                &upstream_protocol,
-                &body,
-            )
-            .map_err(|e| match e.translation() {
-                Some(t) => RebuildError::Translation(t.to_string()),
-                None => RebuildError::Other(e.to_string()),
-            })?;
+            let translated =
+                protocol::translate_request_body(&pc.protocol, &upstream_protocol, &body).map_err(
+                    |e| match e.translation() {
+                        Some(t) => RebuildError::Translation(t.to_string()),
+                        None => RebuildError::Other(e.to_string()),
+                    },
+                )?;
             body = translated;
             pc.translated = true;
             pc.upstream_protocol = upstream_protocol;
@@ -346,7 +345,12 @@ impl super::Server {
                 let Ok(req) = serde_json::from_slice::<protocol::ChatRequest>(&pc.body) else {
                     return base();
                 };
-                policy::inspect_request_from_openai(&pc.user.name, &pc.canonical, trusted, Some(&req))
+                policy::inspect_request_from_openai(
+                    &pc.user.name,
+                    &pc.canonical,
+                    trusted,
+                    Some(&req),
+                )
             }
         }
     }
@@ -378,11 +382,8 @@ impl super::Server {
         // happened to prefer chat.
         let mut presented: Vec<u8> = body.to_vec();
         if pc.reply_needs_conversion() {
-            match protocol::translate_response_body(
-                &pc.upstream_protocol,
-                &pc.protocol,
-                &presented,
-            ) {
+            match protocol::translate_response_body(&pc.upstream_protocol, &pc.protocol, &presented)
+            {
                 Ok(converted) => presented = converted,
                 Err(e) => log::warn!(
                     "response translation failed id={} from={} to={} err={}",
@@ -399,13 +400,14 @@ impl super::Server {
                 let pr: protocol::AnthropicResponse = match serde_json::from_slice(body) {
                     Ok(pr) => pr,
                     Err(_) => {
-                        pc.inbound_decision = self.engine.check_inbound(Some(&policy::InspectResponse {
-                            protocol: "anthropic".to_string(),
-                            channel: pc.channel.name.clone(),
-                            trusted,
-                            text: Vec::new(),
-                            tool_calls: Vec::new(),
-                        }));
+                        pc.inbound_decision =
+                            self.engine.check_inbound(Some(&policy::InspectResponse {
+                                protocol: "anthropic".to_string(),
+                                channel: pc.channel.name.clone(),
+                                trusted,
+                                text: Vec::new(),
+                                tool_calls: Vec::new(),
+                            }));
                         return;
                     }
                 };
@@ -432,13 +434,14 @@ impl super::Server {
                 let pr: protocol::ResponsesResponse = match serde_json::from_slice(body) {
                     Ok(pr) => pr,
                     Err(_) => {
-                        pc.inbound_decision = self.engine.check_inbound(Some(&policy::InspectResponse {
-                            protocol: "responses".to_string(),
-                            channel: pc.channel.name.clone(),
-                            trusted,
-                            text: Vec::new(),
-                            tool_calls: Vec::new(),
-                        }));
+                        pc.inbound_decision =
+                            self.engine.check_inbound(Some(&policy::InspectResponse {
+                                protocol: "responses".to_string(),
+                                channel: pc.channel.name.clone(),
+                                trusted,
+                                text: Vec::new(),
+                                tool_calls: Vec::new(),
+                            }));
                         return;
                     }
                 };
@@ -452,21 +455,24 @@ impl super::Server {
                 if !pr.model.is_empty() {
                     pc.observe_upstream_model(&pr.model);
                 }
-                pc.inbound_decision =
-                    self.engine
-                        .check_inbound(Some(&inspect_responses(&pc.channel.name, trusted, &pr)));
+                pc.inbound_decision = self.engine.check_inbound(Some(&inspect_responses(
+                    &pc.channel.name,
+                    trusted,
+                    &pr,
+                )));
             }
             _ => {
                 let pr: protocol::ChatResponse = match serde_json::from_slice(body) {
                     Ok(pr) => pr,
                     Err(_) => {
-                        pc.inbound_decision = self.engine.check_inbound(Some(&policy::InspectResponse {
-                            protocol: "openai".to_string(),
-                            channel: pc.channel.name.clone(),
-                            trusted,
-                            text: Vec::new(),
-                            tool_calls: Vec::new(),
-                        }));
+                        pc.inbound_decision =
+                            self.engine.check_inbound(Some(&policy::InspectResponse {
+                                protocol: "openai".to_string(),
+                                channel: pc.channel.name.clone(),
+                                trusted,
+                                text: Vec::new(),
+                                tool_calls: Vec::new(),
+                            }));
                         return;
                     }
                 };
@@ -479,13 +485,19 @@ impl super::Server {
                 if !pr.model.is_empty() {
                     pc.observe_upstream_model(&pr.model);
                 }
-                pc.inbound_decision = self.engine.check_inbound(Some(
-                    &policy::inspect_response_from_openai(&pc.channel.name, trusted, Some(&pr)),
-                ));
+                pc.inbound_decision =
+                    self.engine
+                        .check_inbound(Some(&policy::inspect_response_from_openai(
+                            &pc.channel.name,
+                            trusted,
+                            Some(&pr),
+                        )));
             }
         }
         if pc.inbound_decision.degraded {
-            self.stats.degraded.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.stats
+                .degraded
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
     }
 
@@ -826,7 +838,10 @@ pub(crate) fn provider_of(cfg: &config::Config, channel: &str) -> (String, Strin
 }
 
 /// Returns a channel's metadata map, if it has one.
-fn channel_metadata(cfg: &config::Config, channel: &str) -> Option<std::collections::HashMap<String, String>> {
+fn channel_metadata(
+    cfg: &config::Config,
+    channel: &str,
+) -> Option<std::collections::HashMap<String, String>> {
     cfg.all_channels()
         .into_iter()
         .find(|ch| ch.name == channel)
@@ -893,7 +908,8 @@ mod tests {
         let naapi = "{\"error\":{\"message\":\"预扣费额度失败, 用户剩余额度: 0.017783\",\"type\":\"new_api_error\",\"code\":\"insufficient_user_quota\"}}";
         let naapi = naapi.as_bytes();
         let openai = br#"{"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota","code":"insufficient_quota"}}"#;
-        let english = br#"{"error":{"message":"Insufficient balance","type":"invalid_request_error"}}"#;
+        let english =
+            br#"{"error":{"message":"Insufficient balance","type":"invalid_request_error"}}"#;
         for (name, body) in [
             ("new-api", naapi),
             ("openai", &openai[..]),
@@ -922,7 +938,11 @@ mod tests {
         let quota = br#"{"error":{"code":"insufficient_user_quota"}}"#;
         assert_eq!(failure_class(403, None, Some(&quota[..])), CLASS_QUOTA);
         assert_eq!(
-            failure_class(403, None, Some(&br#"{"error":{"code":"invalid_api_key"}}"#[..])),
+            failure_class(
+                403,
+                None,
+                Some(&br#"{"error":{"code":"invalid_api_key"}}"#[..])
+            ),
             ""
         );
         assert_eq!(failure_class(403, None, None), "");

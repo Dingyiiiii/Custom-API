@@ -43,8 +43,8 @@ mod probe;
 mod scores;
 
 pub use baseline::{
-    load_baselines, Baseline, CompareResult, FingerprintBaselines, VERDICT_MATCH,
-    VERDICT_MISMATCH, VERDICT_NO_BASELINE, VERDICT_SKIPPED,
+    load_baselines, Baseline, CompareResult, FingerprintBaselines, VERDICT_MATCH, VERDICT_MISMATCH,
+    VERDICT_NO_BASELINE, VERDICT_SKIPPED,
 };
 pub use bench::{default_bench_suite, BenchCase, BenchOutcome, BenchReport, BenchRunner};
 pub use catalogue::Catalogue;

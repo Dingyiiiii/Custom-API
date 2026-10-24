@@ -40,7 +40,7 @@ pub struct Baseline {
     #[serde(default, skip_serializing_if = "crate::json::is_zero_i32")]
     pub distinct: i32,
     /// When the baseline was collected.
-    #[serde(default = "zero_time")]
+    #[serde(default = "zero_time", serialize_with = "crate::json::go_time")]
     pub created_at: DateTime<Utc>,
     /// A digest over the collected replies, so an operator can tell whether a
     /// baseline was regenerated.
@@ -68,7 +68,7 @@ pub struct FingerprintBaselines {
     #[serde(default)]
     pub version: i32,
     /// When the file was written.
-    #[serde(default = "zero_time")]
+    #[serde(default = "zero_time", serialize_with = "crate::json::go_time")]
     pub updated_at: DateTime<Utc>,
     /// Maps a canonical model name to its baseline.
     #[serde(default, deserialize_with = "null_map")]
@@ -152,11 +152,16 @@ pub fn load_baselines(path: &str) -> Result<FingerprintBaselines, IntelError> {
         }
         Err(err) => return Err(IntelError::Io(err)),
     };
-    let parsed: FingerprintBaselines =
+    // Go decodes into a value that already exists, so a file holding `null`
+    // leaves it at the zero value and reports no error. Decoding into an
+    // `Option` reproduces that: `null` becomes `None`, which is exactly the Go
+    // zero `FingerprintBaselines`.
+    let parsed: Option<FingerprintBaselines> =
         serde_json::from_slice(&bytes).map_err(|source| IntelError::ParseBaselines {
             path: path.to_string(),
             source,
         })?;
+    let parsed = parsed.unwrap_or_default();
     // Go re-creates a nil map after decoding; `null_map` already guarantees an
     // initialized map here.
     Ok(parsed)
@@ -186,10 +191,10 @@ pub struct CompareResult {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub model: String,
     /// Measured divergence, in bits.
-    #[serde(default)]
+    #[serde(default, serialize_with = "crate::json::go_f64")]
     pub score: f64,
     /// Threshold the score was compared against.
-    #[serde(default)]
+    #[serde(default, serialize_with = "crate::json::go_f64")]
     pub threshold: f64,
     /// One of the [`VERDICT_MATCH`] family.
     #[serde(default)]

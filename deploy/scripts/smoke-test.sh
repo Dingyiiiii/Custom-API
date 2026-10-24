@@ -74,6 +74,17 @@ for _ip in $(ifconfig -l 2>/dev/null); do
 	NONLOOP_IP="${_cand}"
 	break
 done
+# ifconfig -l is the FreeBSD spelling. On a Linux box (where the same harness is
+# used to validate a local build) it answers "option not recognised", so fall
+# back to iproute2 rather than silently skipping the reachability test.
+if [ -z "${NONLOOP_IP}" ] && command -v ip >/dev/null 2>&1; then
+	_cand=$(ip -o -4 addr show 2>/dev/null |
+		awk '$2 != "lo" {split($4, a, "/"); print a[1]; exit}')
+	case "${_cand}" in
+	""|127.*) : ;;
+	*) NONLOOP_IP="${_cand}" ;;
+	esac
+fi
 
 # ---------------------------------------------------------------- utilities
 

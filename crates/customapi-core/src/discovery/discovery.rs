@@ -66,7 +66,7 @@ pub struct ModelEntry {
     ///
     /// Go's `omitempty` does not apply to a `time.Time`, so the zero timestamp is
     /// always written.
-    #[serde(default = "config::zero_time")]
+    #[serde(default = "config::zero_time", serialize_with = "crate::json::go_time")]
     pub discovered_at: DateTime<Utc>,
     /// A discovery failure for this provider, so an operator can see why a
     /// provider contributed nothing instead of assuming it has no models.
@@ -95,7 +95,7 @@ pub struct ChannelModels {
     )]
     pub models: Vec<ModelEntry>,
     /// When this channel's list was last refreshed.
-    #[serde(default = "config::zero_time")]
+    #[serde(default = "config::zero_time", serialize_with = "crate::json::go_time")]
     pub discovered: DateTime<Utc>,
     /// Whether the list is older than the configured threshold.
     #[serde(default, skip_serializing_if = "crate::json::is_false")]
@@ -113,7 +113,7 @@ pub struct ChannelModels {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot {
     /// When discovery last ran to completion.
-    #[serde(default = "config::zero_time")]
+    #[serde(default = "config::zero_time", serialize_with = "crate::json::go_time")]
     pub updated_at: DateTime<Utc>,
     /// Per-channel model lists.
     #[serde(
@@ -166,7 +166,11 @@ pub struct ModelView {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub cheapest: String,
     /// The cheapest effective unit price.
-    #[serde(default, skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        default,
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub unit_price: f64,
     /// Currency of [`ModelView::unit_price`].
     #[serde(default, skip_serializing_if = "String::is_empty")]

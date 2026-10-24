@@ -51,7 +51,11 @@ pub struct Provider {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub trust: String,
     /// Biases routing across providers.
-    #[serde(default, skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        default,
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub weight: f64,
     /// Allows disabling a whole provider without deleting its keys.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -127,7 +131,11 @@ pub struct ApiKey {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub api_key: String,
     /// Biases key selection within the provider. Zero means 1.
-    #[serde(default, skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        default,
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub weight: f64,
     /// Allows parking a key without deleting it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -160,7 +168,11 @@ pub struct KeyLimits {
     #[serde(default, skip_serializing_if = "crate::json::is_zero_i32")]
     pub tpm: i32,
     /// Spend cap in `currency`.
-    #[serde(default, skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        default,
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub monthly_budget: f64,
     /// Currency of `monthly_budget`.
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -719,6 +731,7 @@ pub struct ProviderSummary {
     /// Whether the provider may receive traffic.
     pub enabled: bool,
     /// Routing weight.
+    #[serde(serialize_with = "crate::json::go_f64")]
     pub weight: f64,
     /// Routing groups.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -752,7 +765,11 @@ pub struct KeySummary {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub prefix: String,
     /// Key weight.
-    #[serde(default, skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        default,
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub weight: f64,
     /// Whether the key may be used.
     pub enabled: bool,

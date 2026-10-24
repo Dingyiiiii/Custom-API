@@ -43,7 +43,11 @@ pub struct BenchCase {
     /// Bounds the reply.
     pub max_tokens: i32,
     /// Scales this case's contribution.
-    #[serde(default, skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        default,
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub weight: f64,
 }
 
@@ -449,19 +453,27 @@ pub struct BenchReport {
     /// Cases that passed.
     pub passed: i32,
     /// `passed / total`, in [0,1].
-    #[serde(default)]
+    #[serde(default, serialize_with = "crate::json::go_f64")]
     pub score: f64,
     /// Pass rate per category.
-    #[serde(default, deserialize_with = "super::null_map")]
+    #[serde(
+        default,
+        deserialize_with = "super::null_map",
+        serialize_with = "crate::json::go_f64_map"
+    )]
     pub by_category: BTreeMap<String, f64>,
     /// Pass rate per difficulty level.
-    #[serde(default, deserialize_with = "super::null_map")]
+    #[serde(
+        default,
+        deserialize_with = "super::null_map",
+        serialize_with = "crate::json::go_f64_map"
+    )]
     pub by_level: BTreeMap<String, f64>,
     /// When the run started.
-    #[serde(default = "zero_time")]
+    #[serde(default = "zero_time", serialize_with = "crate::json::go_time")]
     pub started: DateTime<Utc>,
     /// When the run finished.
-    #[serde(default = "zero_time")]
+    #[serde(default = "zero_time", serialize_with = "crate::json::go_time")]
     pub finished: DateTime<Utc>,
     /// Per-case detail; verbose, so it is only populated on request.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -621,7 +633,11 @@ impl BenchRunner {
         let status = response.status();
         // Go ignores a read error (`b, _ := io.ReadAll`) and caps the body at
         // 1 MiB so a runaway upstream cannot exhaust memory.
-        let bytes = response.bytes().await.map(|bytes| bytes.to_vec()).unwrap_or_default();
+        let bytes = response
+            .bytes()
+            .await
+            .map(|bytes| bytes.to_vec())
+            .unwrap_or_default();
         let latency = elapsed_ms(start);
         let bytes = limit_body(bytes, 1 << 20);
         // Go compares against `http.StatusOK` exactly, so a 2xx that is not 200

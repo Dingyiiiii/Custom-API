@@ -75,18 +75,33 @@ pub struct Cost {
     #[serde(skip_serializing_if = "String::is_empty")]
     pub currency: String,
     /// The priced components.
-    #[serde(skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub input_cost: f64,
-    #[serde(skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub output_cost: f64,
     /// `input_cost + output_cost` (already discounted).
-    #[serde(skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub total_cost: f64,
     /// The undiscounted total, kept so the discount is auditable.
-    #[serde(skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub list_cost: f64,
     /// The effective discount percentage.
-    #[serde(skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub discount_pct: f64,
     /// How the price was obtained: "catalogue", "unknown".
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -120,15 +135,24 @@ pub struct UsageSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     pub method: String,
     /// Relative deviations.
-    #[serde(skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub prompt_delta: f64,
-    #[serde(skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub completion_delta: f64,
     /// "consistent", "over_billed", "under_billed", "not_reported" or
     /// "not_verifiable".
     pub verdict: String,
     /// Tolerance used for the verdict.
-    #[serde(skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub tolerance: f64,
     /// The absolute floor applied with the tolerance.
     #[serde(skip_serializing_if = "crate::json::is_zero_i64")]
@@ -146,10 +170,16 @@ pub struct Fingerprint {
     pub checked: bool,
     /// The divergence from the channel's baseline (JS divergence, 0 ==
     /// identical distributions).
-    #[serde(skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub score: f64,
     /// Threshold applied when deciding `verdict`.
-    #[serde(skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub threshold: f64,
     /// "match", "mismatch", "no_baseline" or "skipped".
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -239,11 +269,17 @@ pub struct Record {
     /// Identifies the request end to end.
     pub id: String,
     /// The request start timestamp (RFC3339, UTC).
+    ///
+    /// Written with Go's `RFC3339Nano` spelling: the fractional second keeps only
+    /// the digits it needs, so the bytes (and therefore the entry hash, which
+    /// covers them) match what the Go implementation writes.
+    #[serde(serialize_with = "crate::json::go_time")]
     pub time: DateTime<Utc>,
     /// When the response finished.
     ///
     /// Like Go, this field is always emitted: `omitempty` has no effect on a
     /// struct, so an unset end time appears as Go's zero time.
+    #[serde(serialize_with = "crate::json::go_time")]
     pub end_time: DateTime<Utc>,
 
     /// The user name, and the upstream access point.
@@ -528,8 +564,8 @@ pub(crate) fn remove_top_level_field(
                 )))
             }
         };
-        let name: String = serde_json::from_slice(&trimmed[key_start..key_end])
-            .map_err(|e| AuditError::Json {
+        let name: String =
+            serde_json::from_slice(&trimmed[key_start..key_end]).map_err(|e| AuditError::Json {
                 context: "unmarshal key".to_string(),
                 source: e,
             })?;
@@ -811,9 +847,7 @@ impl Writer {
         };
         inner
             .remember_identity(&opts.path)
-            .map_err(|e| {
-                AuditError::io(format!("stat {}", opts.path), e)
-            })?;
+            .map_err(|e| AuditError::io(format!("stat {}", opts.path), e))?;
 
         if !opts.truncate {
             let (seq, prev) = resume(&opts.path)?;
@@ -853,20 +887,18 @@ impl Writer {
         let seq = inner.seq.wrapping_add(1);
         r.seq = seq;
         r.prev_hash = inner.prev.clone();
-        let hash = compute_hash(r)
-            .map_err(|e| AuditError::msg(format!("audit: hash record: {e}")))?;
+        let hash =
+            compute_hash(r).map_err(|e| AuditError::msg(format!("audit: hash record: {e}")))?;
         r.entry_hash = hash.clone();
 
-        let mut line = serde_json::to_vec(r)
-            .map_err(|e| AuditError::json("marshal record", e))?;
+        let mut line = serde_json::to_vec(r).map_err(|e| AuditError::json("marshal record", e))?;
         line.push(b'\n');
         let fsync = inner.fsync_on_write;
         let f = inner
             .f
             .as_mut()
             .ok_or_else(|| AuditError::msg("audit: write: ledger is closed"))?;
-        f.write_all(&line)
-            .map_err(|e| AuditError::io("write", e))?;
+        f.write_all(&line).map_err(|e| AuditError::io("write", e))?;
         f.flush().map_err(|e| AuditError::io("flush", e))?;
         if fsync {
             f.sync_all().map_err(|e| AuditError::io("sync", e))?;
@@ -1021,9 +1053,7 @@ fn verify_existing(path: &str) -> Result<(), AuditError> {
 fn tail_of(path: &str) -> Result<(i64, String), AuditError> {
     let f = match File::open(path) {
         Ok(f) => f,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            return Ok((0, GENESIS_HASH.to_string()))
-        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((0, GENESIS_HASH.to_string())),
         Err(e) => return Err(AuditError::io(format!("open {path}"), e)),
     };
     let mut reader = BufReader::new(f);
@@ -1047,11 +1077,7 @@ fn tail_of(path: &str) -> Result<(i64, String), AuditError> {
 /// Reads one line (without its terminator) the way Go's `bufio.Scanner` does:
 /// `\n` ends a line and one trailing `\r` is dropped, so a CRLF ledger hashes
 /// the same bytes it would on any other platform.
-fn read_next_line<R: BufRead>(
-    reader: &mut R,
-    buf: &mut Vec<u8>,
-    max: usize,
-) -> io::Result<bool> {
+fn read_next_line<R: BufRead>(reader: &mut R, buf: &mut Vec<u8>, max: usize) -> io::Result<bool> {
     buf.clear();
     if reader.read_until(b'\n', buf)? == 0 {
         return Ok(false);
@@ -1093,6 +1119,7 @@ const VERIFY_LINE_CAP: usize = 16 << 20;
 pub struct Anchor {
     pub seq: i64,
     pub hash: String,
+    #[serde(serialize_with = "crate::json::go_time")]
     pub time: DateTime<Utc>,
     pub records: i64,
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -1125,8 +1152,7 @@ pub fn append_anchor(path: &str, a: &Anchor) -> Result<(), AuditError> {
     b.push(b'\n');
     f.write_all(&b)
         .map_err(|e| AuditError::io("write anchor", e))?;
-    f.sync_all()
-        .map_err(|e| AuditError::io("sync anchor", e))
+    f.sync_all().map_err(|e| AuditError::io("sync anchor", e))
 }
 
 /// Reads all anchors from a file, newest last.
@@ -1434,7 +1460,10 @@ fn parent_dir(path: &str) -> Option<PathBuf> {
 #[cfg(unix)]
 fn mkdir_all(dir: &Path) -> io::Result<()> {
     use std::os::unix::fs::DirBuilderExt;
-    fs::DirBuilder::new().recursive(true).mode(0o750).create(dir)
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o750)
+        .create(dir)
 }
 
 /// Creates `dir` and its parents.
@@ -1602,8 +1631,7 @@ mod tests {
         let res = verify(&path, "").expect("verify");
         assert!(!res.ok, "deletion was not detected");
         assert!(
-            has_violation(&res, VIOLATION_SEQ_GAP)
-                || has_violation(&res, VIOLATION_PREV_MISMATCH),
+            has_violation(&res, VIOLATION_SEQ_GAP) || has_violation(&res, VIOLATION_PREV_MISMATCH),
             "expected a seq gap or prev-hash mismatch, got {:?}",
             res.violations
         );
@@ -1983,7 +2011,10 @@ mod tests {
             "a genesis anchor was reported as a violation: {:?}",
             res.violations
         );
-        assert_eq!(res.anchors_checked, 1, "genesis anchor not counted: {res:?}");
+        assert_eq!(
+            res.anchors_checked, 1,
+            "genesis anchor not counted: {res:?}"
+        );
 
         // And it must still verify after records are appended.
         for _ in 0..3 {
@@ -2100,8 +2131,7 @@ mod tests {
         w.close().expect("close");
 
         let mut lines = read_lines(&path);
-        let mut raw: serde_json::Value =
-            serde_json::from_str(&lines[1]).expect("unmarshal");
+        let mut raw: serde_json::Value = serde_json::from_str(&lines[1]).expect("unmarshal");
         raw["usage"]["total_tokens"] = serde_json::json!(1);
         lines[1] = serde_json::to_string(&raw).expect("marshal");
         write_lines(&path, &lines);
@@ -2126,8 +2156,7 @@ mod tests {
         w.close().expect("close");
 
         let lines = read_lines(&path);
-        let mut raw: serde_json::Value =
-            serde_json::from_str(&lines[0]).expect("unmarshal");
+        let mut raw: serde_json::Value = serde_json::from_str(&lines[0]).expect("unmarshal");
         raw.as_object_mut().expect("object").remove("entry_hash");
         let modified = serde_json::to_string(&raw).expect("marshal");
         write_lines(&path, &[modified]);
@@ -2155,10 +2184,8 @@ mod tests {
         for shape in shapes {
             let payload = shape.replace("%PREV%", &format!("\"prev_hash\":\"{prev}\","));
             let hash = sha256_hex(payload.as_bytes());
-            let line = payload.replace(
-                "\"entry_hash\":\"\"",
-                &format!("\"entry_hash\":\"{hash}\""),
-            );
+            let line =
+                payload.replace("\"entry_hash\":\"\"", &format!("\"entry_hash\":\"{hash}\""));
             lines.push(line);
             prev = hash;
         }
@@ -2293,7 +2320,11 @@ mod tests {
             let (got, found) = remove_top_level_field(input.as_bytes(), "entry_hash")
                 .unwrap_or_else(|e| panic!("{name}: {e}"));
             assert!(found, "{name}: field not found");
-            assert_eq!(String::from_utf8(got).unwrap(), want, "{name}: wrong removal");
+            assert_eq!(
+                String::from_utf8(got).unwrap(),
+                want,
+                "{name}: wrong removal"
+            );
         }
     }
 
@@ -2314,11 +2345,7 @@ mod tests {
         // The remaining failures have fixed messages; the strings are the Go
         // implementation's own (see the reference probe).
         let cases: [(&str, &[u8], &str); 5] = [
-            (
-                "empty input",
-                b"",
-                "audit: record is not a JSON object",
-            ),
+            ("empty input", b"", "audit: record is not a JSON object"),
             (
                 "not an object",
                 b"[1,2,3]",
@@ -2429,7 +2456,11 @@ mod tests {
         let text = fs::read_to_string(&path).expect("read");
         fs::write(&path, format!("\n{text}\n")).expect("write");
         let res = verify(&path, "").expect("verify");
-        assert!(res.ok, "blank lines broke verification: {:?}", res.violations);
+        assert!(
+            res.ok,
+            "blank lines broke verification: {:?}",
+            res.violations
+        );
         assert_eq!(res.records, 2);
         assert_eq!(read_all(&path).expect("read all").len(), 2);
     }
@@ -2455,7 +2486,11 @@ mod tests {
         let crlf: String = text.replace('\n', "\r\n");
         fs::write(&path, crlf).expect("write");
         let res = verify(&path, "").expect("verify");
-        assert!(res.ok, "CRLF endings broke verification: {:?}", res.violations);
+        assert!(
+            res.ok,
+            "CRLF endings broke verification: {:?}",
+            res.violations
+        );
     }
 
     /// A ledger whose last record has no trailing newline still verifies: Go's
@@ -2479,7 +2514,11 @@ mod tests {
         let text = fs::read_to_string(&path).expect("read");
         fs::write(&path, text.trim_end_matches('\n')).expect("write");
         let res = verify(&path, "").expect("verify");
-        assert!(res.ok, "a missing final newline broke verification: {:?}", res.violations);
+        assert!(
+            res.ok,
+            "a missing final newline broke verification: {:?}",
+            res.violations
+        );
         assert_eq!(res.records, 2);
     }
 
@@ -2655,8 +2694,8 @@ mod tests {
             "\"upstream_completion_tokens\":51,\"upstream_total_tokens\":152,\"upstream_reported\":true,",
             "\"tokenizer_family\":\"cl100k\",\"method\":\"upstream\",\"prompt_delta\":0.01,\"completion_delta\":0.02,",
             "\"verdict\":\"over_billed\",\"tolerance\":0.05,\"min_absolute_delta\":3,\"worst_abs\":4},",
-            "\"cost\":{\"currency\":\"CNY\",\"input_cost\":1.5,\"output_cost\":2.5,\"total_cost\":4.0,",
-            "\"list_cost\":5.0,\"discount_pct\":20.0,\"basis\":\"catalogue\",\"price_model\":\"pm1\"},",
+            "\"cost\":{\"currency\":\"CNY\",\"input_cost\":1.5,\"output_cost\":2.5,\"total_cost\":4,",
+            "\"list_cost\":5,\"discount_pct\":20,\"basis\":\"catalogue\",\"price_model\":\"pm1\"},",
             "\"fingerprint\":{\"checked\":true,\"score\":0.125,\"threshold\":0.3,\"verdict\":\"match\",",
             "\"baseline_source\":\"sample\",\"sample_hash\":\"sh\"},\"latency_ms\":{\"total_ms\":120,",
             "\"outbound_audit_ms\":1,\"upstream_ms\":100,\"inbound_audit_ms\":2,\"ttfb_ms\":40},",
@@ -2719,5 +2758,3 @@ mod tests {
         res.violations.iter().any(|v| v.kind == kind)
     }
 }
-
-

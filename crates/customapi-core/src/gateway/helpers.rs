@@ -12,9 +12,9 @@ use axum::http::{HeaderMap, HeaderName, HeaderValue};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 
+use crate::audit;
 use crate::config::User;
 use crate::policy::Redactor;
-use crate::audit;
 
 use super::proxy::ProxyContext;
 
@@ -368,7 +368,9 @@ mod tests {
     #[test]
     fn hop_by_hop_and_credentials_are_recognised() {
         for name in ["Connection", "TE", "Transfer-Encoding", "Upgrade"] {
-            assert!(is_hop_by_hop(&HeaderName::from_bytes(name.as_bytes()).unwrap()));
+            assert!(is_hop_by_hop(
+                &HeaderName::from_bytes(name.as_bytes()).unwrap()
+            ));
         }
         for name in ["Authorization", "x-api-key", "API-Key", "x-goog-api-key"] {
             assert!(is_credential_header(

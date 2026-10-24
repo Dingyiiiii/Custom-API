@@ -56,6 +56,7 @@ struct ProviderChannelView {
     protocols: Vec<String>,
     has_key: bool,
     enabled: bool,
+    #[serde(serialize_with = "crate::json::go_f64")]
     weight: f64,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     groups: Vec<String>,
@@ -80,6 +81,7 @@ struct ChannelHealth {
     requests: i64,
     errors: i64,
     /// 1 - clamped worst deviation, from the ledger.
+    #[serde(serialize_with = "crate::json::go_f64")]
     usage_integrity: f64,
 }
 
@@ -133,10 +135,8 @@ pub(crate) async fn handle_providers(State(server): State<Arc<Server>>) -> Respo
                     channel_view.model_count = models.models.len();
                     channel_view.stale = models.stale;
                     channel_view.discover_error = models.error.clone();
-                    channel_view.discovered = models
-                        .discovered
-                        .format("%Y-%m-%d %H:%M:%S")
-                        .to_string();
+                    channel_view.discovered =
+                        models.discovered.format("%Y-%m-%d %H:%M:%S").to_string();
                 }
                 for entry in catalogue.iter().filter(|m| m.channel == key.channel) {
                     for model in &entry.models {
@@ -251,7 +251,7 @@ pub(crate) async fn handle_admin_models(
         "errors": snapshot.errors,
         "models": views,
         "providers": snapshot.providers,
-        "updated_at": snapshot.updated_at,
+        "updated_at": crate::json::GoTime(snapshot.updated_at),
     });
     json_response(StatusCode::OK, &payload)
 }

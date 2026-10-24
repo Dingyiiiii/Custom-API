@@ -548,11 +548,7 @@ fn lower_all(input: &[String]) -> Vec<String> {
 
 /// Turns findings into an action, honouring enforcement mode and the trust
 /// exemption.
-pub(super) fn build_decision(
-    findings: Vec<Finding>,
-    mode: &str,
-    trusted: bool,
-) -> Decision {
+pub(super) fn build_decision(findings: Vec<Finding>, mode: &str, trusted: bool) -> Decision {
     let mut d = Decision {
         action: ACTION_ALLOW.to_string(),
         findings: dedupe_findings(findings),

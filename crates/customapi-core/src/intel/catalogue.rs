@@ -31,6 +31,7 @@ struct CatalogueState {
     /// Maps `"channel\0model"` to a normalized price.
     prices: BTreeMap<String, config::PriceModel>,
     /// Last refresh time.
+    #[serde(serialize_with = "crate::json::go_time")]
     updated_at: DateTime<Utc>,
     /// Records where each price came from.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]

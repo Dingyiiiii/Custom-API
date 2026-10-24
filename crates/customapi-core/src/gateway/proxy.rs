@@ -360,7 +360,10 @@ pub(crate) async fn handle_proxy(State(server): State<Arc<Server>>, req: Request
 
     // --------------------------------------------------- outbound policy
     if pc.outbound_decision.blocked() {
-        server.stats.blocked_outbound.fetch_add(1, Ordering::Relaxed);
+        server
+            .stats
+            .blocked_outbound
+            .fetch_add(1, Ordering::Relaxed);
         let message = server.block_message(&pc.outbound_decision, true);
         return server.refuse(
             &mut pc,
@@ -514,7 +517,12 @@ impl Server {
         if let Ok(state) = self.store.commit(&pc.user.name, 1, 0.0, "", Utc::now()) {
             pc.quota_after = state.remaining();
         }
-        self.finish_audit(pc, audit::DECISION_BLOCK_USER, status.as_u16() as i32, message);
+        self.finish_audit(
+            pc,
+            audit::DECISION_BLOCK_USER,
+            status.as_u16() as i32,
+            message,
+        );
         audit_error(status, code, message, &pc.id)
     }
 
@@ -956,10 +964,13 @@ impl Server {
             // Every metered request costs at least one unit.
             units = 1;
         }
-        if let Ok(state) = self
-            .store
-            .commit(&pc.user.name, units, quote.cost, &quote.currency, Utc::now())
-        {
+        if let Ok(state) = self.store.commit(
+            &pc.user.name,
+            units,
+            quote.cost,
+            &quote.currency,
+            Utc::now(),
+        ) {
             pc.quota_after = state.remaining();
         }
     }

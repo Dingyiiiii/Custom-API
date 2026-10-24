@@ -10,11 +10,16 @@
 //! Rule IDs are stable and appear verbatim in audit records, so renaming one is a
 //! breaking change for operators' log queries.
 
-use super::engine::{
-    must_compile, Rule, INBOUND, OUTBOUND, SEV_CRITICAL, SEV_HIGH, SEV_MEDIUM,
-};
+use super::engine::{must_compile, Rule, INBOUND, OUTBOUND, SEV_CRITICAL, SEV_HIGH, SEV_MEDIUM};
 
-fn keywords(id: &str, direction: &str, severity: &str, field: &str, detail: &str, list: &[&str]) -> Rule {
+fn keywords(
+    id: &str,
+    direction: &str,
+    severity: &str,
+    field: &str,
+    detail: &str,
+    list: &[&str],
+) -> Rule {
     Rule {
         id: id.to_string(),
         direction: direction.to_string(),

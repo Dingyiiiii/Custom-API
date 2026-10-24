@@ -55,7 +55,10 @@ pub struct UserState {
     #[serde(skip_serializing_if = "crate::json::is_zero_i64")]
     pub requests: i64,
     /// The monetary cost accumulated in the current period.
-    #[serde(skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub spend: f64,
     /// Currency of `spend`.
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -64,8 +67,10 @@ pub struct UserState {
     ///
     /// Always serialised, like Go: `omitempty` has no effect on a struct, so an
     /// unset start appears as Go's zero time.
+    #[serde(serialize_with = "crate::json::go_time")]
     pub period_start: DateTime<Utc>,
     /// The last request time.
+    #[serde(serialize_with = "crate::json::go_time")]
     pub last_seen: DateTime<Utc>,
     /// Mirrors the configuration.
     pub enabled: bool,
@@ -690,7 +695,10 @@ fn parent_dir(path: &str) -> Option<std::path::PathBuf> {
 #[cfg(unix)]
 fn mkdir_all(dir: &std::path::Path) -> io::Result<()> {
     use std::os::unix::fs::DirBuilderExt;
-    fs::DirBuilder::new().recursive(true).mode(0o750).create(dir)
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o750)
+        .create(dir)
 }
 
 /// Creates a directory and its parents.
@@ -731,6 +739,7 @@ pub struct ModelStat {
     pub prompt_tokens: i64,
     pub completion_tokens: i64,
     pub total_tokens: i64,
+    #[serde(serialize_with = "crate::json::go_f64")]
     pub cost: f64,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub currency: String,
@@ -748,15 +757,18 @@ pub struct ChannelStat {
     pub prompt_tokens: i64,
     pub completion_tokens: i64,
     pub total_tokens: i64,
+    #[serde(serialize_with = "crate::json::go_f64")]
     pub cost: f64,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub currency: String,
     /// The mean of per-request integrity (1 - clamped deviation) over verifiable
     /// requests; 1.0 means "always consistent".
+    #[serde(serialize_with = "crate::json::go_f64")]
     pub usage_integrity: f64,
     /// Requests where a comparison was possible.
     pub verifiable: i64,
     /// The mean total latency.
+    #[serde(serialize_with = "crate::json::go_f64")]
     pub mean_latency_ms: f64,
 }
 
@@ -943,14 +955,18 @@ mod tests {
     fn quota_exhaustion() {
         let (m, _dir) = new_test_manager();
         let alice = users()[0].clone();
-        m.commit("alice", 1000, 1.0, "CNY", Utc::now()).expect("commit");
+        m.commit("alice", 1000, 1.0, "CNY", Utc::now())
+            .expect("commit");
 
         let err = m.check(&alice, "gpt-4o").unwrap_err();
         assert!(
             matches!(err, StoreError::QuotaExceeded(_)),
             "expected QuotaExceeded, got {err:?}"
         );
-        assert_eq!(err.to_string(), "quota exceeded: alice has 0/1000 quota left");
+        assert_eq!(
+            err.to_string(),
+            "quota exceeded: alice has 0/1000 quota left"
+        );
     }
 
     #[test]
@@ -1104,7 +1120,8 @@ mod tests {
         let (m, _dir) = new_test_manager();
         let clock = Clock::new(dt(2026, 1, 1, 0, 0, 0));
         m.set_clock(clock.callback());
-        m.commit("bob", 42, 0.1, "CNY", clock.get()).expect("commit");
+        m.commit("bob", 42, 0.1, "CNY", clock.get())
+            .expect("commit");
 
         clock.set(add_date(clock.get(), 2, 0, 0));
         m.roll();
@@ -1175,7 +1192,8 @@ mod tests {
         m.set_on_change(Some(Arc::new(move || {
             counter.fetch_add(1, Ordering::SeqCst);
         })));
-        m.commit("alice", 1, 0.0, "CNY", Utc::now()).expect("commit");
+        m.commit("alice", 1, 0.0, "CNY", Utc::now())
+            .expect("commit");
         m.set_quota("alice", 10).expect("set quota");
         assert_eq!(
             calls.load(Ordering::SeqCst),
@@ -1604,7 +1622,8 @@ mod tests {
                 }
             })));
         }
-        m.commit("alice", 5, 0.5, "CNY", Utc::now()).expect("commit");
+        m.commit("alice", 5, 0.5, "CNY", Utc::now())
+            .expect("commit");
         let text = fs::read_to_string(&path).expect("state written by the callback");
         assert!(text.contains("\"consumed\": 5"), "state: {text}");
     }
@@ -1620,7 +1639,8 @@ mod tests {
             .expect("commit");
         clock.set(dt(2026, 3, 2, 11, 0, 0));
         // Commit itself rolls the period before adding the new units.
-        let st = m.commit("alice", 7, 0.07, "CNY", clock.get())
+        let st = m
+            .commit("alice", 7, 0.07, "CNY", clock.get())
             .expect("commit");
         assert_eq!(st.consumed, 7);
         assert_eq!(st.requests, 1);

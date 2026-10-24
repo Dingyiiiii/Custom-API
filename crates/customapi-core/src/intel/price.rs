@@ -28,7 +28,11 @@ pub struct PriceSource {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub currency: String,
     /// The exchange rate used when converting.
-    #[serde(default, skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        default,
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub usd_cny: f64,
 }
 

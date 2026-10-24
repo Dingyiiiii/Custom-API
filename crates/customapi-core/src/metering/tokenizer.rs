@@ -208,9 +208,7 @@ impl Estimator {
                 TextClass::Punct => *tokens += n * self.ratios.punct,
                 TextClass::Space => *tokens += n * self.ratios.newline,
                 // 3 bytes per CJK char.
-                TextClass::Cjk => {
-                    *tokens += n * self.ratios.cjk_scale * CJK_RATIO / 3.0
-                }
+                TextClass::Cjk => *tokens += n * self.ratios.cjk_scale * CJK_RATIO / 3.0,
             }
             *run_bytes = 0;
         };

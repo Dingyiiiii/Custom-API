@@ -48,7 +48,11 @@ pub fn jensen_shannon(a: &[i32], b: &[i32]) -> f64 {
         (false, false) => {
             let pa = histogram(a, lo, hi, BINS);
             let pb = histogram(b, lo, hi, BINS);
-            let m: Vec<f64> = pa.iter().zip(pb.iter()).map(|(x, y)| 0.5 * (x + y)).collect();
+            let m: Vec<f64> = pa
+                .iter()
+                .zip(pb.iter())
+                .map(|(x, y)| 0.5 * (x + y))
+                .collect();
             0.5 * kl(&pa, &m) + 0.5 * kl(&pb, &m)
         }
     }

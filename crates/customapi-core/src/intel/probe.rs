@@ -29,6 +29,7 @@ pub struct Probe {
     /// Bounds the reply.
     pub max_tokens: i32,
     /// Fixed across channels so results are comparable.
+    #[serde(serialize_with = "crate::json::go_f64")]
     pub temperature: f64,
 }
 
@@ -120,7 +121,7 @@ pub struct ChannelResult {
     #[serde(default)]
     pub lengths: Vec<i32>,
     /// When the run was collected.
-    #[serde(default = "zero_time")]
+    #[serde(default = "zero_time", serialize_with = "crate::json::go_time")]
     pub collected_at: DateTime<Utc>,
 }
 
@@ -207,8 +208,13 @@ impl Runner {
         } else {
             Some(probe.system.as_str())
         };
-        let body: Value =
-            chat_request_body(&self.model, probe.max_tokens, probe.temperature, system, &probe.prompt);
+        let body: Value = chat_request_body(
+            &self.model,
+            probe.max_tokens,
+            probe.temperature,
+            system,
+            &probe.prompt,
+        );
         // Serialising a `Value` cannot fail, so unlike Go there is no error arm.
         let raw = serde_json::to_vec(&body).unwrap_or_default();
         let url = upstream_url(&self.base_url, "/v1/chat/completions");

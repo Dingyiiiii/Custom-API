@@ -18,18 +18,34 @@ use std::time::Duration;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Scores {
     /// Benchmark score in [0,1]; 0 means "unmeasured".
-    #[serde(default, skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        default,
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub capability: f64,
     /// Fraction of probes that matched the baseline, in [0,1]; 1 means "always
     /// the genuine model".
-    #[serde(default, skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        default,
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub fingerprint_match: f64,
     /// Observed success rate in [0,1].
-    #[serde(default, skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        default,
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub reliability: f64,
     /// 1 - clamp(worst observed deviation), in [0,1]; a channel that inflates
     /// usage is penalised regardless of price.
-    #[serde(default, skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        default,
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub usage_integrity: f64,
     /// Per-suite capability detail.
     ///
@@ -39,14 +55,18 @@ pub struct Scores {
     #[serde(
         default,
         skip_serializing_if = "BTreeMap::is_empty",
-        deserialize_with = "null_default"
+        deserialize_with = "null_default",
+        serialize_with = "crate::json::go_f64_map"
     )]
     pub benchmarks: BTreeMap<String, f64>,
     /// When the score was computed.
     ///
     /// Go's `omitempty` does not apply to a `time.Time` struct, so the zero
     /// timestamp is always written; the field mirrors that.
-    #[serde(default = "crate::config::zero_time")]
+    #[serde(
+        default = "crate::config::zero_time",
+        serialize_with = "crate::json::go_time"
+    )]
     pub updated_at: DateTime<Utc>,
     /// How many observations back this score.
     #[serde(default, skip_serializing_if = "crate::json::is_zero_i32")]

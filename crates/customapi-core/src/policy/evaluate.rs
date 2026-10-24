@@ -1,9 +1,7 @@
 //! Payload extraction, rule evaluation, streaming detection and redaction.
 
 use crate::protocol::responses::{ResponsesOutputItem, ResponsesRequest, ResponsesResponse};
-use crate::protocol::types::{
-    AnthropicRequest, AnthropicResponse, ChatRequest, ChatResponse,
-};
+use crate::protocol::types::{AnthropicRequest, AnthropicResponse, ChatRequest, ChatResponse};
 
 use super::engine::{
     build_decision, dedupe_findings, excerpt_hash_with, Decision, Engine, Finding, PolicyError,
@@ -96,7 +94,8 @@ pub fn inspect_request_from_openai(
         for (j, p) in m.content.parts_or_parse().iter().enumerate() {
             match p.r#type.as_str() {
                 "" | "text" | "input_text" | "output_text" => {
-                    ir.text.push(labelled(format!("{f}.content[{j}]"), p.text.clone()));
+                    ir.text
+                        .push(labelled(format!("{f}.content[{j}]"), p.text.clone()));
                 }
                 "tool_result" => {
                     if let Some(content) = &p.content {
@@ -163,7 +162,8 @@ pub fn inspect_request_from_anthropic(
         for (j, p) in m.content.parts_or_parse().iter().enumerate() {
             match p.r#type.as_str() {
                 "" | "text" => {
-                    ir.text.push(labelled(format!("{f}.content[{j}]"), p.text.clone()));
+                    ir.text
+                        .push(labelled(format!("{f}.content[{j}]"), p.text.clone()));
                 }
                 "tool_result" => {
                     if let Some(content) = &p.content {
@@ -177,10 +177,8 @@ pub fn inspect_request_from_anthropic(
                     }
                     if let Some(input) = &p.input {
                         if !input.is_empty() {
-                            ir.tool_args.push(labelled(
-                                format!("{f}.content[{j}].input"),
-                                input.as_str(),
-                            ));
+                            ir.tool_args
+                                .push(labelled(format!("{f}.content[{j}].input"), input.as_str()));
                         }
                     }
                 }
@@ -273,7 +271,12 @@ pub fn inspect_response_from_anthropic(
                 .text
                 .push(labelled(format!("{f}.thinking"), b.thinking.clone())),
             "tool_use" => {
-                let args = b.input.as_ref().map(|r| r.as_str()).unwrap_or("").to_string();
+                let args = b
+                    .input
+                    .as_ref()
+                    .map(|r| r.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 ir.tool_calls.push(ToolCallRequest {
                     name: b.name.clone(),
                     arguments: args.clone(),
@@ -324,8 +327,10 @@ fn collect_responses_item(ir: &mut InspectResponse, item: &ResponsesOutputItem) 
         "message" => {
             for (j, part) in item.content.iter().enumerate() {
                 if !part.text.is_empty() {
-                    ir.text
-                        .push(labelled(format!("output[{id}].content[{j}].text"), part.text.clone()));
+                    ir.text.push(labelled(
+                        format!("output[{id}].content[{j}].text"),
+                        part.text.clone(),
+                    ));
                 }
             }
         }
@@ -387,10 +392,8 @@ pub fn inspect_request_from_responses(
         }
         if let Some(schema) = t.tool_schema() {
             if !schema.is_empty() {
-                ir.tool_args.push(labelled(
-                    format!("tools[{i}].parameters"),
-                    schema.as_str(),
-                ));
+                ir.tool_args
+                    .push(labelled(format!("tools[{i}].parameters"), schema.as_str()));
             }
         }
     }
@@ -545,7 +548,9 @@ impl Engine {
         // findings, and the tool-call override below removes the exemption".
         let trusted = resp.trusted;
         let mut d = build_decision(findings, self.inbound_mode(), trusted);
-        if self.inbound_mode() != "report" && self.tool_policy == "block" && !resp.tool_calls.is_empty()
+        if self.inbound_mode() != "report"
+            && self.tool_policy == "block"
+            && !resp.tool_calls.is_empty()
         {
             d.action = ACTION_BLOCK.to_string();
             for f in &mut d.findings {

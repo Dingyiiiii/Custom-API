@@ -80,7 +80,11 @@ pub struct Channel {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub trust: String,
     /// Biases the router. Zero means the default (1.0).
-    #[serde(default, skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        default,
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub weight: f64,
     /// Allows disabling a channel without deleting it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -169,6 +173,7 @@ pub struct User {
     pub models: Vec<String>,
     /// Sustained request rate in requests per second. Zero disables it.
     #[serde(default, skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(serialize_with = "crate::json::go_f64")]
     pub rate_limit: f64,
     /// Rate limiter bucket size. Zero means 2x `rate_limit`.
     #[serde(default, skip_serializing_if = "crate::json::is_zero_i32")]
@@ -227,12 +232,14 @@ pub const PROMO_SUBSCRIBE: &str = "subscription";
 /// Every upstream pricing scheme (multiplier, flat, per-request, tiered
 /// expression) is reduced to a pair of per-million-token rates so that channels
 /// can be compared directly.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PriceModel {
     /// Price per million input tokens, in `currency`.
+    #[serde(serialize_with = "crate::json::go_f64")]
     pub input_per_m: f64,
     /// Price per million output tokens, in `currency`.
+    #[serde(serialize_with = "crate::json::go_f64")]
     pub output_per_m: f64,
     /// Unit of the two rates above, e.g. "CNY" or "USD".
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -242,7 +249,11 @@ pub struct PriceModel {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub scheme: String,
     /// Raw ratio used by multiplier schemes, kept for auditability.
-    #[serde(default, skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        default,
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub completion_ratio: f64,
     /// Discounts that depend on time or volume.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -251,8 +262,28 @@ pub struct PriceModel {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub source: String,
     /// When the price was last observed.
-    #[serde(default = "zero_time")]
+    #[serde(default = "zero_time", serialize_with = "crate::json::go_time")]
     pub updated_at: DateTime<Utc>,
+}
+
+impl Default for PriceModel {
+    /// The Go zero value, including its zero `time.Time`.
+    ///
+    /// A derived `Default` would leave `updated_at` at the Unix epoch, which is
+    /// what chrono defaults to, and the catalogue would then claim a price had
+    /// been observed in 1970 instead of never.
+    fn default() -> Self {
+        PriceModel {
+            input_per_m: 0.0,
+            output_per_m: 0.0,
+            currency: String::new(),
+            scheme: String::new(),
+            completion_ratio: 0.0,
+            promotions: Vec::new(),
+            source: String::new(),
+            updated_at: zero_time(),
+        }
+    }
 }
 
 /// Promotion is one discount rule.
@@ -262,7 +293,11 @@ pub struct Promotion {
     /// Discount mechanism: "off_peak", "volume" or "subscription".
     pub kind: String,
     /// Scales the base price (0.8 == 20% off). Zero means 1.0.
-    #[serde(default, skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        default,
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub multiplier: f64,
     /// Bounds an off-peak window as minutes past local midnight. A window may
     /// wrap past midnight (start > end).
@@ -275,7 +310,11 @@ pub struct Promotion {
     #[serde(default, skip_serializing_if = "crate::json::is_zero_i64")]
     pub min_tokens: i64,
     /// Monthly fee of a [`PROMO_SUBSCRIBE`] plan.
-    #[serde(default, skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        default,
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub monthly_fee: f64,
     /// Included tokens of a [`PROMO_SUBSCRIBE`] plan.
     #[serde(default, skip_serializing_if = "crate::json::is_zero_i64")]
@@ -360,14 +399,26 @@ pub struct MeteringPolicy {
     pub min_absolute_delta: i32,
     /// Allowed relative deviation between the upstream's reported usage and the
     /// gateway's own recount before it is flagged.
-    #[serde(default, skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        default,
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub tolerance: f64,
     /// Fraction of requests that get an online behavioural probe.
-    #[serde(default, skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        default,
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub fingerprint_sample_rate: f64,
     /// JS-divergence above which a channel is considered to serve a different
     /// model.
-    #[serde(default, skip_serializing_if = "crate::json::is_zero_f64")]
+    #[serde(
+        default,
+        skip_serializing_if = "crate::json::is_zero_f64",
+        serialize_with = "crate::json::go_f64"
+    )]
     pub fingerprint_threshold: f64,
 }
 
@@ -509,9 +560,11 @@ impl<'de> Deserialize<'de> for Comment {
                 for item in items {
                     match item {
                         serde_json::Value::String(s) => out.push(s),
-                        other => return Err(D::Error::custom(format!(
+                        other => {
+                            return Err(D::Error::custom(format!(
                             "_comment must be a string or an array of strings: unexpected {other}"
-                        ))),
+                        )))
+                        }
                     }
                 }
                 Ok(Comment(out))
@@ -1091,6 +1144,36 @@ mod tests {
             }],
             ..Config::default()
         }
+    }
+
+    /// The Go zero value of a price row carries Go's zero `time.Time`, not the
+    /// Unix epoch: a price that was never observed must not claim to have been
+    /// observed in 1970, and the catalogue writes the field either way because
+    /// `omitempty` does not apply to a struct.
+    #[test]
+    fn price_model_default_uses_the_go_zero_time() {
+        let price = PriceModel::default();
+        assert_eq!(price.updated_at, zero_time());
+        assert_eq!(
+            serde_json::to_value(&price).unwrap()["updated_at"],
+            serde_json::json!("0001-01-01T00:00:00Z")
+        );
+    }
+
+    /// Prices are floats on the Go side, so the file the catalogue writes has to
+    /// spell them the way `encoding/json` does: `40`, not `40.0`.
+    #[test]
+    fn price_model_serialises_floats_like_go() {
+        let price = PriceModel {
+            input_per_m: 40.0,
+            output_per_m: 1e-7,
+            completion_ratio: 2.0,
+            ..PriceModel::default()
+        };
+        let text = serde_json::to_string(&price).unwrap();
+        assert!(text.contains(r#""input_per_m":40"#), "{text}");
+        assert!(text.contains(r#""output_per_m":1e-7"#), "{text}");
+        assert!(text.contains(r#""completion_ratio":2"#), "{text}");
     }
 
     #[test]

@@ -31,11 +31,8 @@ impl TempDir {
     fn new() -> TempDir {
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "customapi-intel-{}-{}",
-            std::process::id(),
-            unique
-        ));
+        let path =
+            std::env::temp_dir().join(format!("customapi-intel-{}-{}", std::process::id(), unique));
         fs::create_dir_all(&path).expect("create temp dir");
         TempDir { path }
     }
@@ -97,8 +94,8 @@ impl StubServer {
                         "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{payload}",
                         payload.len()
                     );
-                    let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, response.as_bytes())
-                        .await;
+                    let _ =
+                        tokio::io::AsyncWriteExt::write_all(&mut socket, response.as_bytes()).await;
                     let _ = tokio::io::AsyncWriteExt::flush(&mut socket).await;
                 });
             }
@@ -453,10 +450,31 @@ fn load_baselines_corrupt_fails() {
 fn load_baselines_null_models_is_empty() {
     let dir = TempDir::new();
     let path = dir.file("nulls.json");
-    fs::write(&path, r#"{"version":1,"updated_at":"2026-01-01T00:00:00Z","models":null}"#)
-        .expect("write file");
+    fs::write(
+        &path,
+        r#"{"version":1,"updated_at":"2026-01-01T00:00:00Z","models":null}"#,
+    )
+    .expect("write file");
     let baselines = load_baselines(&path).expect("null models must load");
     assert!(baselines.models.is_empty());
+}
+
+/// Go decodes a JSON `null` document into the zero `FingerprintBaselines` and
+/// reports no error, because the destination already exists and
+/// `json.Unmarshal("null", &v)` is a no-op. A file truncated to `null` must load
+/// the same way rather than failing the daemon on start-up.
+#[test]
+fn load_baselines_null_document_is_the_zero_value() {
+    let dir = TempDir::new();
+    let path = dir.file("empty.json");
+    fs::write(&path, "null").expect("write file");
+    let baselines = load_baselines(&path).expect("a null document must load");
+    assert_eq!(baselines.version, 0);
+    assert_eq!(baselines.updated_at, crate::config::zero_time());
+    assert!(baselines.models.is_empty());
+    // Surrounding whitespace and a trailing newline are equally harmless.
+    fs::write(&path, " null\n").expect("write file");
+    assert!(load_baselines(&path).is_ok());
 }
 
 /// Saving creates the parent directories the way Go's `MkdirAll` does, so a
@@ -531,7 +549,12 @@ fn grade_case_table() {
         ("chinese answer prefix", exact("北京"), "答案是北京", true),
         ("wrong number", exact("42"), "43", false),
         ("number with working", exact("42"), "17 + 25 = 42", true),
-        ("wrong but contains number", exact("42"), "17 + 25 = 43", false),
+        (
+            "wrong but contains number",
+            exact("42"),
+            "17 + 25 = 43",
+            false,
+        ),
         (
             "contains",
             containing(&["yes"]),
@@ -551,7 +574,12 @@ fn grade_case_table() {
             "15",
             false,
         ),
-        ("contains numeric exact", containing(&["5"]), "5 cents", true),
+        (
+            "contains numeric exact",
+            containing(&["5"]),
+            "5 cents",
+            true,
+        ),
         ("empty reply", exact("42"), "", false),
         ("whitespace reply", exact("42"), "   \n  ", false),
         (
@@ -590,7 +618,11 @@ fn default_bench_suite_is_well_formed() {
     let mut levels: BTreeMap<&str, usize> = BTreeMap::new();
     for case in &suite {
         assert!(!case.id.is_empty(), "a case has no id");
-        assert!(ids.insert(case.id.clone()), "duplicate case id {:?}", case.id);
+        assert!(
+            ids.insert(case.id.clone()),
+            "duplicate case id {:?}",
+            case.id
+        );
         assert!(!case.prompt.is_empty(), "case {} has no prompt", case.id);
         assert!(
             case.max_tokens > 0,
@@ -792,10 +824,7 @@ fn assemble_scores_merges_evidence() {
     let reports = vec![BenchReport {
         model: "gpt-4o".to_string(),
         score: 0.8,
-        by_category: BTreeMap::from([
-            ("math".to_string(), 1.0),
-            ("code".to_string(), 0.6),
-        ]),
+        by_category: BTreeMap::from([("math".to_string(), 1.0), ("code".to_string(), 0.6)]),
         by_level: BTreeMap::from([("E".to_string(), 1.0), ("H".to_string(), 0.5)]),
         ..BenchReport::default()
     }];
@@ -1258,7 +1287,8 @@ fn catalogue_load_preserves_unmentioned_fields() {
         "sources were not named by the file, so they stay in memory"
     );
     assert_eq!(
-        value["updated_at"], serde_json::json!("0001-01-01T00:00:00Z"),
+        value["updated_at"],
+        serde_json::json!("0001-01-01T00:00:00Z"),
         "an unnamed timestamp resets, as Go's unconditional assignment does"
     );
 }
@@ -1319,7 +1349,10 @@ async fn runner_collects_probe_results() {
         channel: "upstream-a".to_string(),
         ..Runner::default()
     };
-    let probes = vec![probe("first", "say hello", 16), probe("second", "say it again", 16)];
+    let probes = vec![
+        probe("first", "say hello", 16),
+        probe("second", "say it again", 16),
+    ];
     let result = runner.run(&probes).await;
 
     assert_eq!(result.channel, "upstream-a");
@@ -1338,8 +1371,14 @@ async fn runner_collects_probe_results() {
     assert_eq!(server.requests().len(), 2);
 
     let request = server.requests().remove(0).to_lowercase();
-    assert!(request.contains("x-customs-channel: upstream-a"), "{request}");
-    assert!(request.contains("authorization: bearer probe-token"), "{request}");
+    assert!(
+        request.contains("x-customs-channel: upstream-a"),
+        "{request}"
+    );
+    assert!(
+        request.contains("authorization: bearer probe-token"),
+        "{request}"
+    );
 }
 
 /// The probe request body is audited by the gateway, so its byte layout follows

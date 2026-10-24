@@ -47,16 +47,21 @@ impl Tokens {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Quote {
     /// Undiscounted cost.
+    #[serde(serialize_with = "crate::json::go_f64")]
     pub list_cost: f64,
     /// Cost after promotions.
+    #[serde(serialize_with = "crate::json::go_f64")]
     pub cost: f64,
     /// Currency of both amounts.
     pub currency: String,
     /// Effective discount, 0..100.
+    #[serde(serialize_with = "crate::json::go_f64")]
     pub discount_pct: f64,
     /// Discounted input component.
+    #[serde(serialize_with = "crate::json::go_f64")]
     pub input_cost: f64,
     /// Discounted output component.
+    #[serde(serialize_with = "crate::json::go_f64")]
     pub output_cost: f64,
     /// Promotions that fired, for auditability.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -71,6 +76,7 @@ pub struct AppliedPromotion {
     /// Promotion kind (`off_peak`, `volume`, `subscription`).
     pub kind: String,
     /// Multiplier this promotion contributed.
+    #[serde(serialize_with = "crate::json::go_f64")]
     pub multiplier: f64,
     /// Operator-facing justification.
     #[serde(default, skip_serializing_if = "String::is_empty")]
