@@ -122,7 +122,7 @@ make local-test          # == ./deploy/scripts/deploy.sh local-test
 Rust 没有竞态检测器可开，`make test-race` 就是跑一遍 `cargo test --workspace`
 （历史目标名保留，让运维习惯与文档不至于断掉）。
 
-当前基线（本机实测）：`cargo test --workspace --locked` **747 个测试全部通过**。
+当前基线（本机实测）：`cargo test --workspace --locked` **751 个测试全部通过**。
 其中 `customapi-core` 651 个，按模块分布：
 
 | 模块 | 用例数 | 模块 | 用例数 |
@@ -134,7 +134,7 @@ Rust 没有竞态检测器可开，`make test-race` 就是跑一遍 `cargo test 
 | `metering` | 45 | `store` | 32 |
 | `route` | 40 | `json` / `version` | 7 |
 
-三个入口程序另有 96 个：`customsctl` 30 单元 + 20 集成、`benchd` 17 + 10、
+三个入口程序另有 100 个：`customsctl` 34 单元 + 20 集成、`benchd` 17 + 10、
 `customsd` 10 + 9。集成测试在各自 crate 的 `tests/cli.rs`，用
 `env!("CARGO_BIN_EXE_<name>")` 启动**真实二进制**，比对 stdout 与 Go 版逐字节一致的
 文本（`--check` 摘要、`audit verify` 报告、帮助与退出码）——部署脚本会解析这些文本，
@@ -321,7 +321,7 @@ docker exec customapi-test sh -c 'export PATH=/root/.cargo/bin:$PATH; BIN=$(ls -
   && ls /root/cov-target/debug/deps/customapi_core-* | head -1'
 ```
 
-当前基线：源码行覆盖 **90.4%**、函数覆盖 **84.7%**。偏低的地方集中在
+当前基线：源码行覆盖 **90.7%**、函数覆盖 **85.0%**。偏低的地方集中在
 `benchd/src/tasks.rs`（调度循环）与 `gateway/protocols.rs`（跨协议适配分支），
 补测试优先从这两处下手。
 
@@ -420,7 +420,7 @@ sudo cat $(sudo ls -dt /tmp/customapi-e2e.* | head -1)/gateway.log
 | `benchd` 入口 | 已接线：`run` / `prices` / `fingerprint` / `bench` / `score` 五个任务 |
 | `customsctl` 入口 | 已接线：`config check`、`audit verify/rehash/tail/stats`、`users list/grant/add/suspend/resume`、`prices compare/normalize`；帮助文本里仍列着 `fingerprint baseline`（Go 版有，Rust 版未实现，指纹生成走 `benchd fingerprint`） |
 | 配置/审计账格式兼容 | 已按 `PORTING.md` 第 4 节逐字段对齐，并有跨格式校验用例 |
-| 三个入口的测试 | 共 96 项通过（`customsd` 19、`benchd` 27、`customsctl` 50，含启动真实二进制的进程级测试） |
+| 三个入口的测试 | 共 100 项通过（`customsd` 19、`benchd` 27、`customsctl` 54，含启动真实二进制的进程级测试） |
 | FreeBSD 验收（89 项） | 脚本已按 Rust CLI 改好，**尚未在 Rust 二进制上跑通** |
 | 情报闭环（13 项） | 同上 |
 | 控制台 | `web/` 已存在且可构建；网关侧静态服务（`gateway/web.rs`）已就绪 |

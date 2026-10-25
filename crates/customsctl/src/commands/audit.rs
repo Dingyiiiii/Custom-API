@@ -442,3 +442,141 @@ mod tests {
         assert_eq!(format!("{:+.2}%", 0.0), "+0.00%");
     }
 }
+
+/// `audit rehash` is the repair path for the evidence store, so its branches are
+/// pinned here: a clean ledger must be left alone, a repair must require
+/// confirmation, and stale anchors must be preserved rather than deleted.
+#[cfg(test)]
+mod rehash_tests {
+    use super::*;
+    use customapi_core::audit::{self, Anchor};
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("customsctl-rehash-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    fn ledger_with_records(dir: &std::path::Path, count: usize) -> String {
+        let path = dir.join("audit.jsonl").to_string_lossy().into_owned();
+        let writer = audit::Writer::open(audit::WriterOptions {
+            path: path.clone(),
+            ..Default::default()
+        })
+        .expect("open ledger");
+        for i in 0..count {
+            let mut record = audit::Record {
+                id: format!("req_{i}"),
+                actor: "alice".to_string(),
+                decision: audit::DECISION_ALLOW.to_string(),
+                ..Default::default()
+            };
+            writer.append(&mut record).expect("append");
+        }
+        writer.close().expect("close");
+        path
+    }
+
+    /// Changes one record's token count, which invalidates its hash.
+    fn tamper(path: &str) {
+        let text = std::fs::read_to_string(path).expect("read");
+        let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+        let mut record: audit::Record = serde_json::from_str(&lines[1]).expect("parse");
+        record.usage.total_tokens += 1;
+        lines[1] = serde_json::to_string(&record).expect("serialise");
+        std::fs::write(path, lines.join("\n") + "\n").expect("write");
+    }
+
+    fn args(ledger: &str, anchors: Option<&str>, yes: bool) -> RehashArgs {
+        RehashArgs {
+            config: None,
+            ledger: Some(ledger.to_string()),
+            anchors: anchors.map(str::to_string),
+            yes,
+        }
+    }
+
+    #[test]
+    fn a_clean_ledger_needs_no_repair() {
+        let dir = temp_dir("clean");
+        let ledger = ledger_with_records(&dir, 2);
+        rehash(&args(&ledger, None, false)).expect("nothing to do");
+        assert!(
+            !std::path::Path::new(&format!("{ledger}.pre-rehash")).exists(),
+            "a clean ledger must not be rewritten"
+        );
+    }
+
+    #[test]
+    fn repair_requires_confirmation() {
+        let dir = temp_dir("confirm");
+        let ledger = ledger_with_records(&dir, 3);
+        tamper(&ledger);
+
+        let err = rehash(&args(&ledger, None, false)).expect_err("must refuse");
+        assert!(
+            err.to_string().contains("not confirmed"),
+            "unexpected error: {err}"
+        );
+        // The refusal must leave the evidence untouched.
+        let check = audit::verify(&ledger, "").expect("verify");
+        assert!(!check.ok, "the tampered ledger is still tampered");
+    }
+
+    #[test]
+    fn repair_rewrites_a_broken_chain_and_keeps_the_original() {
+        let dir = temp_dir("repair");
+        let ledger = ledger_with_records(&dir, 3);
+        tamper(&ledger);
+
+        rehash(&args(&ledger, None, true)).expect("repair");
+
+        let check = audit::verify(&ledger, "").expect("verify");
+        assert!(
+            check.ok,
+            "the repaired chain must verify: {:?}",
+            check.violations
+        );
+        assert_eq!(check.records, 3);
+        assert!(
+            std::path::Path::new(&format!("{ledger}.pre-rehash")).exists(),
+            "the original ledger is kept as evidence"
+        );
+    }
+
+    #[test]
+    fn stale_anchors_are_moved_aside_not_deleted() {
+        let dir = temp_dir("anchors");
+        let ledger = ledger_with_records(&dir, 2);
+        // An anchor pinned to a head this ledger never had: the chain is fine,
+        // only the anchor is stale.
+        let anchors = dir.join("anchor.jsonl").to_string_lossy().into_owned();
+        audit::append_anchor(
+            &anchors,
+            &Anchor {
+                seq: 1,
+                hash: "0".repeat(64),
+                time: chrono::Utc::now(),
+                records: 1,
+                component: "customsd".to_string(),
+            },
+        )
+        .expect("append anchor");
+
+        rehash(&args(&ledger, Some(&anchors), true)).expect("anchor repair");
+
+        let backup = format!("{anchors}.pre-rehash");
+        assert!(
+            std::path::Path::new(&backup).exists(),
+            "stale anchors must be preserved at {backup}"
+        );
+        assert!(
+            !std::path::Path::new(&anchors).exists(),
+            "the stale anchor file is moved, not left in place"
+        );
+        // The ledger itself was already consistent and must not be rewritten.
+        assert!(!std::path::Path::new(&format!("{ledger}.pre-rehash")).exists());
+    }
+}

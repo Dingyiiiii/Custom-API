@@ -247,7 +247,7 @@ value = capability × fingerprint_match × reliability × usage_integrity² / �
 | 部署自检 | 已安装的那一份是否真的可用（服务、门禁、账本、控制台） | `deploy/scripts/verify-deployment.sh` |
 | 前端 | 令牌处理逻辑，Node 直接跑真实模块 | `web/scripts/check-auth.mjs` |
 
-本机基线：`cargo test --workspace --locked` **715 个测试通过**（内核 620 + 三个入口 95）。
+本机基线：`cargo test --workspace --locked` **751 个测试通过**（内核 651 + 三个入口 100）。
 
 ---
 
@@ -310,7 +310,7 @@ M1–M6 的"已验收"指 **Go 版**在 FreeBSD 15.1 上通过验收测试。Rus
 | 审计存储膨胀 | 只追加、不轮转、按季度归档；归档文件可独立校验 |
 | 单机故障 | 审计账与锚点异地备份；锚点尽量写到另一台机器 |
 | 探测成本 | `probe` 用户独立记账；周期可调；必要时停 `benchd` |
-| FreeBSD 重验收未做（当前） | 入口已接线并在 Linux 上通过 747 项测试；真机验收前不做生产部署（见第十二节 R3） |
+| FreeBSD 重验收未做（当前） | 入口已接线并在 Linux 上通过 751 项测试；真机验收前不做生产部署（见第十二节 R3） |
 
 ---
 
