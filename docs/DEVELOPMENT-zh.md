@@ -293,6 +293,38 @@ Rule {
 测试不能依赖外网、不能依赖固定端口（验收脚本除外，它按预设的私有端口排队使用）、
 不能靠 `sleep` 等超时（用注入时钟/可控时间）。
 
+### 测覆盖率
+
+覆盖率需要 `llvm-tools` 与 rustc 自带的 LLVM 版本一致，所以用容器把工具链和 profiler
+装在一起最省事（宿主上的系统 LLVM 可能比 rustc 的旧，`llvm-profdata` 会拒绝新格式的
+profile）：
+
+```sh
+docker run -d --name customapi-test \
+  -v "$PWD":/work -v "$HOME/.cargo/registry":/root/.cargo/registry \
+  -w /work debian:trixie sleep infinity
+docker exec customapi-test sh -c 'apt-get update && apt-get install -y curl ca-certificates build-essential'
+# rustup 的官方源慢时换镜像；注意镜像只影响下载，不改工具链版本
+docker exec customapi-test sh -c 'curl -fsSL https://mirrors.ustc.edu.cn/rust-static/rustup/dist/x86_64-unknown-linux-gnu/rustup-init -o /tmp/ri && chmod +x /tmp/ri && RUSTUP_DIST_SERVER=https://mirrors.ustc.edu.cn/rust-static /tmp/ri -y --profile minimal --default-toolchain stable --component llvm-tools'
+```
+
+测量（`--ignore-filename-regex` 把测试代码与标准库排除在外）：
+
+```sh
+docker exec customapi-test sh -c 'export PATH=/root/.cargo/bin:$PATH \
+  CARGO_TARGET_DIR=/root/cov-target RUSTFLAGS="-C instrument-coverage" \
+  LLVM_PROFILE_FILE="/root/cov/%p-%m.profraw"; mkdir -p /root/cov; cd /work \
+  && cargo test --workspace --offline --no-fail-fast'
+# 收集测试可执行文件、合并 profile、出报告
+docker exec customapi-test sh -c 'export PATH=/root/.cargo/bin:$PATH; BIN=$(ls -d /root/.rustup/toolchains/stable-*/lib/rustlib/x86_64-unknown-linux-gnu/bin) \
+  && $BIN/llvm-profdata merge -sparse /root/cov/*.profraw -o /root/cov.profdata \
+  && ls /root/cov-target/debug/deps/customapi_core-* | head -1'
+```
+
+当前基线：源码行覆盖 **90.4%**、函数覆盖 **84.7%**。偏低的地方集中在
+`benchd/src/tasks.rs`（调度循环）与 `gateway/protocols.rs`（跨协议适配分支），
+补测试优先从这两处下手。
+
 ---
 
 ## 7. 交叉编译与部署
