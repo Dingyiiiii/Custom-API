@@ -3018,6 +3018,115 @@ async fn failover_from_out_of_credit_provider_to_the_next() {
     assert_eq!(record.decision, audit::DECISION_ALLOW);
 }
 
+/// A 5xx is the ordinary availability failure: the next provider must serve the
+/// request, the audit record must name both the loser and the winner, and the
+/// failed channel must be counted against its health.
+#[tokio::test]
+async fn failover_from_a_5xx_provider_to_the_next() {
+    let provider = |name: &str| Provider {
+        name: name.to_string(),
+        base_url: String::new(),
+        protocol: "openai".to_string(),
+        models: HashMap::from([("gpt-4o".to_string(), "gpt-4o".to_string())]),
+        keys: vec![ApiKey {
+            name: "main".to_string(),
+            api_key: "key".to_string(),
+            ..ApiKey::default()
+        }],
+        ..Provider::default()
+    };
+    let h = provider_harness(HarnessOptions {
+        upstreams: Some(vec!["flaky".to_string(), "steady".to_string()]),
+        providers: Some(vec![provider("flaky"), provider("steady")]),
+        // "fixed" keeps configuration order, so the failing provider is tried
+        // first rather than losing a score comparison.
+        strategy: "fixed".to_string(),
+        ..HarnessOptions::default()
+    })
+    .await;
+    h.set_provider_base_url(0, format!("{}/flaky", h.mock_base));
+    h.set_provider_base_url(1, format!("{}/steady", h.mock_base));
+    h.mock.set_handler(
+        "flaky",
+        Arc::new(|_request: &MockRequest| {
+            MockReply::json(
+                503,
+                serde_json::json!({"error": {"message": "the upstream is having a bad day"}}),
+            )
+        }),
+    );
+
+    let response = h
+        .post_to("tok-alice", "/v1/chat/completions", SIMPLE_ASK, &[])
+        .await;
+    assert_eq!(response.status, 200, "body={}", response.body);
+    assert_eq!(h.mock.hits("flaky"), 1, "the failing provider was tried");
+    assert_eq!(h.mock.hits("steady"), 1);
+
+    let record = h.last_record();
+    assert_eq!(record.channel, "steady/main");
+    assert_eq!(record.attempts, 2);
+    assert_eq!(record.decision, audit::DECISION_ALLOW);
+    assert!(
+        record.failover_note.contains("flaky/main") && record.failover_note.contains("steady/main"),
+        "failover note must name both channels: {:?}",
+        record.failover_note
+    );
+    // Parity note: the Go gateway charges the circuit breaker only for transport
+    // failures, not for HTTP statuses. A 5xx is handled by failing over this
+    // request, so the channel stays "healthy" and keeps being tried first. The
+    // Rust port reproduces that deliberately; the next test covers the transport
+    // path that does open the breaker.
+    assert_eq!(
+        h.server.health().failure_count("flaky/main"),
+        0,
+        "a retryable HTTP status is not a transport failure"
+    );
+}
+
+/// A channel that cannot be reached at all is a health failure: it opens the
+/// circuit so later requests skip it instead of burning an attempt every time.
+#[tokio::test]
+async fn transport_failure_counts_against_channel_health() {
+    let provider = |name: &str| Provider {
+        name: name.to_string(),
+        base_url: String::new(),
+        protocol: "openai".to_string(),
+        models: HashMap::from([("gpt-4o".to_string(), "gpt-4o".to_string())]),
+        keys: vec![ApiKey {
+            name: "main".to_string(),
+            api_key: "key".to_string(),
+            ..ApiKey::default()
+        }],
+        ..Provider::default()
+    };
+    let h = provider_harness(HarnessOptions {
+        upstreams: Some(vec!["dead".to_string(), "steady".to_string()]),
+        providers: Some(vec![provider("dead"), provider("steady")]),
+        strategy: "fixed".to_string(),
+        ..HarnessOptions::default()
+    })
+    .await;
+    // Port 1 on loopback refuses connections, which is a transport error rather
+    // than an HTTP status.
+    h.set_provider_base_url(0, "http://127.0.0.1:1/dead".to_string());
+    h.set_provider_base_url(1, format!("{}/steady", h.mock_base));
+
+    let response = h
+        .post_to("tok-alice", "/v1/chat/completions", SIMPLE_ASK, &[])
+        .await;
+    assert_eq!(response.status, 200, "body={}", response.body);
+
+    let record = h.last_record();
+    assert_eq!(record.channel, "steady/main");
+    assert_eq!(record.attempts, 2);
+    assert_eq!(
+        h.server.health().failure_count("dead/main"),
+        1,
+        "a connection failure must open the breaker"
+    );
+}
+
 /// Without the quota class the same 403 stays terminal: an operator who
 /// deliberately narrows `retry_on` should not have providers swapped underneath
 /// them.

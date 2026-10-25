@@ -788,3 +788,54 @@ fn pricer_models_lists_only_its_channel() {
     // models: the separator decides, not the prefix.
     assert!(p.models("a").iter().all(|m| m != "y"));
 }
+
+/// The window is half-open: its first minute is inside, its end minute is out.
+/// Getting this wrong shifts a discount by a whole minute at both edges.
+#[test]
+fn off_peak_window_is_half_open_at_its_edges() {
+    let pm = PriceModel {
+        promotions: vec![Promotion {
+            kind: config::PROMO_OFF_PEAK.to_string(),
+            multiplier: 0.5,
+            start_minute: 60, // 01:00
+            end_minute: 120,  // 02:00
+            ..Promotion::default()
+        }],
+        ..price_model(100.0, 100.0, "CNY")
+    };
+    let tokens = Tokens::new(1_000_000, 0);
+    let at = |hour: u32, minute: u32| {
+        chrono::TimeZone::with_ymd_and_hms(&Utc, 2026, 3, 4, hour, minute, 0).unwrap()
+    };
+    for (hour, minute, expected) in [(0, 59, 100.0), (1, 0, 50.0), (1, 59, 50.0), (2, 0, 100.0)] {
+        let q = price_with(&pm, tokens, at(hour, minute), utc());
+        assert!(
+            almost(q.cost, expected),
+            "{hour:02}:{minute:02} cost = {}, want {expected}",
+            q.cost
+        );
+    }
+}
+
+/// A volume discount starts exactly at its threshold; one token less is still
+/// full price.
+#[test]
+fn volume_threshold_includes_exactly_the_threshold() {
+    let pm = PriceModel {
+        promotions: vec![Promotion {
+            kind: config::PROMO_VOLUME.to_string(),
+            multiplier: 0.5,
+            min_tokens: 1_000,
+            ..Promotion::default()
+        }],
+        ..price_model(100.0, 100.0, "CNY")
+    };
+    // 999 tokens at 100 CNY/M is 0.0999, the undiscounted price.
+    let below = price_with(&pm, Tokens::new(999, 0), noon(), utc());
+    assert!(almost(below.cost, 0.0999), "below cost = {}", below.cost);
+    assert!(below.applied.is_empty(), "below should not discount");
+
+    let at = price_with(&pm, Tokens::new(1_000, 0), noon(), utc());
+    assert!(almost(at.cost, 0.05), "at-threshold cost = {}", at.cost);
+    assert_eq!(at.applied.len(), 1);
+}

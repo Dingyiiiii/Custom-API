@@ -1063,3 +1063,36 @@ fn format_g4_matches_go() {
     assert_eq!(format_g(f64::NAN, 4), "NaN");
     assert_eq!(format_g(-0.0, 4), "-0");
 }
+
+/// The weighted strategy draws from a seeded generator, so two selectors built
+/// with the same seed must make the same sequence of choices. Without that, a
+/// request's routing could not be reproduced from its audit record.
+#[test]
+fn weighted_strategy_is_reproducible_for_a_fixed_seed() {
+    let first = new_selector("weighted", Some(score_book()));
+    let second = new_selector("weighted", Some(score_book()));
+    let chans = chans();
+    let req = Request {
+        tokens: tokens(1000),
+        ..request("gpt-4o")
+    };
+    let draw = |selector: &Selector| -> Vec<String> {
+        (0..32)
+            .map(|_| {
+                selector
+                    .select(&chans, &req)
+                    .expect("select")
+                    .chosen
+                    .channel
+                    .name
+            })
+            .collect()
+    };
+    let a = draw(&first);
+    let b = draw(&second);
+    assert_eq!(a, b, "same seed must produce the same sequence");
+    assert!(
+        a.windows(2).any(|w| w[0] != w[1]) || a.len() == 1,
+        "a weighted draw over two channels should not be constant: {a:?}"
+    );
+}

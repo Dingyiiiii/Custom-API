@@ -727,6 +727,43 @@ fn floor_boundary_is_inclusive() {
     assert_eq!(d.min_absolute, 9);
 }
 
+/// The relative bound is strict and the absolute floor is inclusive: a deviation
+/// exactly at the tolerance is noise, one just above it is evidence, and neither
+/// counts unless the floor is met.
+#[test]
+fn relative_tolerance_boundary_is_exclusive_above_the_floor() {
+    let usage = |upstream_prompt: i64| Usage {
+        prompt_tokens: 100,
+        completion_tokens: 100,
+        upstream_prompt_tokens: upstream_prompt,
+        upstream_completion_tokens: 100,
+        upstream_reported: true,
+        ..Usage::default()
+    };
+
+    // 110 vs 100 is a relative deviation of exactly 0.1; 10 tokens clears the
+    // floor of 8, so only the relative comparison decides.
+    let exactly = usage(110).compare_with(0.1, 8);
+    assert!(
+        !exactly.over_threshold,
+        "equal to the tolerance is not over: {exactly:?}"
+    );
+    let just_over = usage(110).compare_with(0.0999, 8);
+    assert!(
+        just_over.over_threshold,
+        "just above the tolerance is over: {just_over:?}"
+    );
+    assert_eq!(just_over.direction, "over");
+
+    // 4 tokens is 4%: above a zero tolerance, but below the absolute floor.
+    let small = usage(104).compare_with(0.0, 8);
+    assert!(
+        !small.over_threshold,
+        "the absolute floor must still apply: {small:?}"
+    );
+    assert_eq!(small.worst_abs, 4);
+}
+
 /// Translated from `TestZeroActualWithFloor`, which verifies an upstream billing
 /// for a request the gateway counted as empty is still caught.
 #[test]

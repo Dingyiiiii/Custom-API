@@ -1850,6 +1850,42 @@ mod tests {
     /// The writer must not append to a ledger whose chain is already broken.
     /// Appending would launder the tampering: the file would look
     /// self-consistent from that point on.
+    /// A crash between two appends leaves a partial final line. Verification has
+    /// to report it at its line number rather than trusting the intact prefix,
+    /// otherwise a torn write would look like a shorter but valid ledger.
+    #[test]
+    fn truncated_tail_is_reported_at_its_line() {
+        let dir = TempDir::new();
+        let (path, _anchors) = temp_ledger(&dir);
+        let w = Writer::open(WriterOptions {
+            path: path.clone(),
+            ..Default::default()
+        })
+        .expect("open");
+        for _ in 0..2 {
+            let mut rec = sample_record("r");
+            w.append(&mut rec).expect("append");
+        }
+        w.close().expect("close");
+
+        let mut body = std::fs::read(&path).expect("read");
+        assert_eq!(body.last(), Some(&b'\n'), "records end with a newline");
+        body.extend_from_slice(b"{\"seq\":3,\"prev_hash\":\"abc\"");
+        std::fs::write(&path, &body).expect("write");
+
+        let result = verify(&path, "").expect("verify");
+        assert!(!result.ok, "a torn tail must not verify");
+        assert_eq!(result.records, 2, "the intact prefix still counts");
+        assert!(
+            result
+                .violations
+                .iter()
+                .any(|v| v.kind == VIOLATION_PARSE && v.line == 3),
+            "expected a parse violation on line 3: {:?}",
+            result.violations
+        );
+    }
+
     #[test]
     fn open_refuses_tampered_ledger() {
         let dir = TempDir::new();

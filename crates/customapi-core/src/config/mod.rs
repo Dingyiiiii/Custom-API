@@ -1453,4 +1453,129 @@ mod tests {
         .to_string();
         assert!(err.contains("unknown field"), "{err}");
     }
+
+    /// The env file is the most specific source and is applied last, so it wins
+    /// over the ambient environment. `load_with_env_file` relies on entry order
+    /// for that, so the contract is pinned here rather than through process-wide
+    /// environment mutation, which would race with other tests.
+    #[test]
+    fn env_file_pairs_win_over_the_ambient_environment() {
+        let mut config = base_config();
+        config.apply_env(&[
+            (
+                "CUSTOMS_SERVER_LISTEN".to_string(),
+                "127.0.0.1:1111".to_string(),
+            ),
+            // The env file's line, appended after the ambient environment.
+            (
+                "CUSTOMS_SERVER_LISTEN".to_string(),
+                "127.0.0.1:2222".to_string(),
+            ),
+        ]);
+        assert_eq!(config.server.listen, "127.0.0.1:2222");
+    }
+
+    /// A malformed secrets file must fail the load rather than silently leaving a
+    /// channel without credentials.
+    #[test]
+    fn load_with_env_file_surfaces_env_file_errors() {
+        let config_path = write_config(
+            "envfile-error",
+            r#"{"server":{},"channels":[{"name":"a","base_url":"http://x"}],"users":[]}"#,
+        );
+        let env_path = config_path.with_file_name("customs.env");
+        std::fs::write(&env_path, "THIS_IS_NOT_AN_ASSIGNMENT\n").unwrap();
+        let err = load_with_env_file(&config_path, Some(&env_path))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("expected KEY=VALUE"), "{err}");
+    }
+
+    /// The env file can supply a credential the configuration file omits.
+    #[test]
+    fn load_with_env_file_applies_secrets() {
+        let config_path = write_config(
+            "envfile-secret",
+            r#"{"server":{},"channels":[{"name":"upstream_a","base_url":"http://x"}],"users":[{"name":"alice","token":"from-file"}]}"#,
+        );
+        let env_path = config_path.with_file_name("customs.env");
+        std::fs::write(&env_path, "CUSTOMS_CHANNEL_UPSTREAM_A_APIKEY=sk-injected\n").unwrap();
+        let config = load_with_env_file(&config_path, Some(&env_path)).expect("load");
+        assert_eq!(config.channels[0].api_key, "sk-injected");
+        assert_eq!(config.users[0].token, "from-file");
+    }
+
+    /// Provider validation keeps the Go messages: an unnamed key in a multi-key
+    /// provider, a key name containing the channel separator, and a provider name
+    /// colliding with a directly-configured channel.
+    #[test]
+    fn provider_validation_reports_key_problems() {
+        let mut config = Config {
+            providers: vec![Provider {
+                name: "vendor".to_string(),
+                base_url: "https://vendor.example".to_string(),
+                keys: vec![
+                    ApiKey::default(),
+                    ApiKey {
+                        name: "bad/name".to_string(),
+                        ..ApiKey::default()
+                    },
+                ],
+                ..Provider::default()
+            }],
+            channels: vec![Channel {
+                name: "vendor".to_string(),
+                base_url: "http://direct.example".to_string(),
+                ..Channel::default()
+            }],
+            ..Config::default()
+        };
+        config.apply_defaults();
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("keys[0].name is required"), "{err}");
+        assert!(err.contains("must not contain '/'"), "{err}");
+        assert!(err.contains("collides with a provider"), "{err}");
+    }
+
+    /// A retry class nobody recognises and a group no provider belongs to are
+    /// configuration mistakes, not silent no-ops.
+    #[test]
+    fn routing_validation_rejects_unknown_groups_and_classes() {
+        let mut config = base_config();
+        config.routing.retry_on = vec!["5xx".to_string(), "teapot".to_string()];
+        config.routing.groups = vec!["nope".to_string()];
+        config.apply_defaults();
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("routing.retry_on"), "{err}");
+        assert!(err.contains("unknown group"), "{err}");
+    }
+
+    /// Providers inherit the server timeout and the global discovery interval;
+    /// leaving them at zero would produce channels with no deadline that a
+    /// weighted strategy never selects.
+    #[test]
+    fn provider_defaults_inherit_server_settings() {
+        let mut config = Config {
+            providers: vec![Provider {
+                name: "vendor".to_string(),
+                base_url: "https://vendor.example".to_string(),
+                discover: Some(DiscoverPolicy::default()),
+                ..Provider::default()
+            }],
+            ..Config::default()
+        };
+        config.server.upstream_timeout = Duration::from_secs(45);
+        config.discovery.interval = Duration::from_secs(600);
+        config.apply_defaults();
+
+        let provider = &config.providers[0];
+        assert_eq!(provider.protocol, "openai");
+        assert_eq!(provider.trust, TRUST_UNTRUSTED);
+        assert_eq!(provider.weight, 1.0);
+        assert_eq!(provider.timeout, Duration::from_secs(45));
+        assert_eq!(
+            provider.discover.as_ref().map(|d| d.interval),
+            Some(Duration::from_secs(600))
+        );
+    }
 }

@@ -138,3 +138,7 @@ Go 的 `encoding/json` 行为必须在 Rust 侧复现：
    否则所有 `/admin/*` 会被当成远程调用者拒绝。
 11. **`customsctl audit rehash`**：Go 版在"链损坏 + 锚点过期"组合下会把 anchor 移动两次而
     以 rc=1 结束（修复已完成但退出码误导）；Rust 按实际结果返回 rc=0 并打印新的锚点位置。
+12. **健康熔断只统计传输失败**：Go 的 `forward` 只在"请求构造失败 / 连接失败"时调用
+    `health.Failure`，可重试的 HTTP 状态（5xx/429）只触发本次请求的 failover，不会给渠道
+    记失败。Rust 保持一致（补齐的单测把这条语义钉死）；若希望 5xx 也开熔断，需要同时改
+    Go 与 Rust，属行为变更而不是移植。

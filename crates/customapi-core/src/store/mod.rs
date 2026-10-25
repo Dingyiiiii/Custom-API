@@ -1646,4 +1646,105 @@ mod tests {
         assert_eq!(st.requests, 1);
         assert_eq!(st.lifetime_consumed, 107);
     }
+
+    /// Eight threads charging the same account must not lose a single unit: the
+    /// counter is the quota authority, so a lost update would let a user spend
+    /// more than their allowance.
+    #[test]
+    fn concurrent_commits_are_atomic() {
+        let (m, _dir) = new_test_manager();
+        let at = dt(2026, 3, 4, 12, 0, 0);
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                scope.spawn(|| {
+                    for _ in 0..50 {
+                        m.commit("alice", 1, 0.0, "", at).expect("commit");
+                    }
+                });
+            }
+        });
+
+        let st = m.get("alice").expect("state");
+        assert_eq!(st.consumed, 400);
+        assert_eq!(st.requests, 400);
+        assert_eq!(st.lifetime_consumed, 400);
+        assert_eq!(st.remaining(), 600, "quota 1000 - 400 consumed");
+    }
+
+    /// Spend accumulates across currencies while the last currency used is kept
+    /// on the state, which is what the aggregate views read.
+    #[test]
+    fn spend_accumulates_and_currencies_are_tracked() {
+        let (m, _dir) = new_test_manager();
+        let at = dt(2026, 3, 4, 12, 0, 0);
+        m.commit("bob", 1, 0.5, "CNY", at).expect("commit");
+        m.commit("bob", 1, 0.25, "USD", at).expect("commit");
+
+        let st = m.get("bob").expect("state");
+        assert!(almost(st.spend, 0.75), "spend = {}", st.spend);
+        assert_eq!(st.currency, "USD");
+        assert_eq!(
+            m.currencies_seen(),
+            vec!["CNY".to_string(), "USD".to_string()]
+        );
+    }
+
+    /// Weekly periods advance in seven-day steps from the period anchor, the way
+    /// the Go manager's `advancePeriod` does.
+    #[test]
+    fn weekly_reset_uses_seven_day_periods() {
+        let users = vec![config::User {
+            name: "alice".to_string(),
+            token: "t1".to_string(),
+            quota: 100,
+            period: "weekly".to_string(),
+            ..config::User::default()
+        }];
+        let dir = TempDir::new();
+        let m = Manager::new(&users, dir.join("state.json").to_string_lossy());
+        let clock = Clock::new(dt(2026, 3, 2, 10, 0, 0));
+        m.set_clock(clock.callback());
+
+        m.roll();
+        m.commit("alice", 40, 0.0, "", clock.get()).expect("commit");
+
+        // Six days later the period is still the same one.
+        clock.set(clock.get() + ChronoDuration::days(6));
+        m.roll();
+        assert_eq!(m.get("alice").expect("alice").consumed, 40);
+
+        // Past the seven-day mark the counter resets; lifetime does not.
+        clock.set(clock.get() + ChronoDuration::days(2));
+        m.roll();
+        let st = m.get("alice").expect("alice");
+        assert_eq!(st.consumed, 0, "weekly quota did not reset");
+        assert_eq!(st.lifetime_consumed, 40);
+        assert_eq!(st.requests, 0);
+    }
+
+    /// `commit` is deliberately unconditional, as it is in the Go manager: the
+    /// gateway charges one unit and writes an audit record even for a request it
+    /// refused, so that the ledger covers what it was asked to do. The suspension
+    /// gate lives in `check`, which runs before any upstream call.
+    #[test]
+    fn commit_records_refusals_but_check_is_the_gate() {
+        let (m, _dir) = new_test_manager();
+        m.set_enabled("alice", false).expect("suspend");
+
+        let err = m
+            .check(&users()[0], "gpt-4o")
+            .expect_err("check must refuse a suspended key");
+        assert!(err.to_string().contains("suspended"), "{err}");
+
+        let st = m
+            .commit("alice", 1, 0.0, "", dt(2026, 3, 4, 12, 0, 0))
+            .expect("a refusal is still recorded");
+        assert_eq!(st.consumed, 1);
+        assert!(!st.enabled);
+    }
+
+    #[track_caller]
+    fn almost(a: f64, b: f64) -> bool {
+        (a - b).abs() < 1e-9
+    }
 }
