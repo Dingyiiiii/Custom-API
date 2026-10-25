@@ -53,6 +53,9 @@ struct ProviderChannelView {
     #[serde(skip_serializing_if = "String::is_empty")]
     key: String,
     protocol: String,
+    // Go declares this field without `omitempty`, so an unset slice is emitted
+    // as `null`; matching that keeps the payload identical.
+    #[serde(serialize_with = "crate::json::vec_or_null")]
     protocols: Vec<String>,
     has_key: bool,
     enabled: bool,
@@ -221,7 +224,12 @@ pub(crate) async fn handle_providers(State(server): State<Arc<Server>>) -> Respo
             "allow_translation": cfg.routing.translation_allowed(),
             "max_attempts": cfg.routing.attempts(),
             "prefer_same_protocol": cfg.routing.same_protocol_preferred(),
-            "retry_on": cfg.routing.retry_on,
+            // Go emits `null` for an unset RetryOn slice (no omitempty).
+            "retry_on": if cfg.routing.retry_on.is_empty() {
+                serde_json::Value::Null
+            } else {
+                serde_json::json!(cfg.routing.retry_on)
+            },
             "strategy": server.selector().strategy(),
         },
     });

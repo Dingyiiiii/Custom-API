@@ -111,22 +111,30 @@ Go 的 `encoding/json` 行为必须在 Rust 侧复现：
    `40` 而不是 `40.0`、时间写 RFC3339Nano 去尾零（`.5Z`），审计账本、state、目录、
    管理 API 都已挂上，因此 Rust 写出的账本能被 Go 版 `customsctl audit verify` 校验，
    反之亦然。残余差异：NaN/Inf 在 Go 里是序列化错误，这里写 `null`。
-2. **HTML 转义**：Go 的 `encoding/json` 把 `<` `>` `&` 转成 `\u003c` 等，serde_json 不转。
+   **时间戳时区**：Go 用 `time.Now()` 写本地偏移（`+08:00`），Rust 统一写 UTC（`Z`）。
+   同一瞬间、同样的 RFC3339 语义，读取端（`customsctl audit tail` 与管理 API 的消费方）
+   按存储里的偏移呈现，因此迁移前后混在一本账里也能正确排序与显示；但逐字节对比会看到
+   偏移写法不同。选择 UTC 是为了让证据不随部署机时区变化。
+2. **空集合与 `null`**：Go 的 nil slice 序列化成 `null`、带 `omitempty` 的字段直接省略；
+   Rust 侧已按字段逐一对齐（`/admin/providers` 的 `retry_on` 与直连通道 `protocols` 写
+   `null`，`/admin/config` 的 `models` 为空时省略），其余带 `omitempty` 的字段用
+   `skip_serializing_if` 省略。
+3. **HTML 转义**：Go 的 `encoding/json` 把 `<` `>` `&` 转成 `\u003c` 等，serde_json 不转。
    只影响"翻译产物"，转发路径不重新编码，用户收到的字节不受影响。
-3. **JSON 解码宽松度**：Go 字段名大小写不敏感、重复键后者胜；serde 精确匹配、重复键报错。
+4. **JSON 解码宽松度**：Go 字段名大小写不敏感、重复键后者胜；serde 精确匹配、重复键报错。
    标准客户端不受影响。
-4. **`metadata` 的 nil 与空 map**：Go 用 nil 表示"直连通道信任任意协议"、显式 `{}` 表示
+5. **`metadata` 的 nil 与空 map**：Go 用 nil 表示"直连通道信任任意协议"、显式 `{}` 表示
    "声明为空"；Rust 的 `HashMap` 无法区分，按"缺失=信任"处理（与常见配置一致）。
-5. **错误文本内层**：外层前缀、错误码、HTTP 状态逐字对齐；内层细节来自 serde_json /
+6. **错误文本内层**：外层前缀、错误码、HTTP 状态逐字对齐；内层细节来自 serde_json /
    reqwest / std::io，与 encoding/json / net/http / os 的措辞不同。
-6. **时区**：`chrono::FixedOffset` 只支持固定偏移，Go 的 `*time.Location` 支持夏令时；
+7. **时区（优惠窗口）**：`chrono::FixedOffset` 只支持固定偏移，Go 的 `*time.Location` 支持夏令时；
    优惠的低谷时段窗口按固定偏移计算。
-7. **负 Duration**：Go 的 `ParseDuration` 接受 `-30s`，Rust 配置层拒绝（负超时无意义）。
-8. **CLI 长选项**：规范写法是双横线（`--config`），并保留一层窄兼容：已知长选项的单横线
+8. **负 Duration**：Go 的 `ParseDuration` 接受 `-30s`，Rust 配置层拒绝（负超时无意义）。
+9. **CLI 长选项**：规范写法是双横线（`--config`），并保留一层窄兼容：已知长选项的单横线
    写法会被补成双横线，所以 Go 时代的脚本仍然可用。
-9. **管理面门禁依赖 peer 地址**：core 的 `Server::admin_handler()` 从
+10. **管理面门禁依赖 peer 地址**：core 的 `Server::admin_handler()` 从
    `ConnectInfo<SocketAddr>` 取调用者地址，服务端必须用
    `into_make_service_with_connect_info::<SocketAddr>()`（`customsd` 已这样做），
    否则所有 `/admin/*` 会被当成远程调用者拒绝。
-10. **`customsctl audit rehash`**：Go 版在"链损坏 + 锚点过期"组合下会把 anchor 移动两次而
+11. **`customsctl audit rehash`**：Go 版在"链损坏 + 锚点过期"组合下会把 anchor 移动两次而
     以 rc=1 结束（修复已完成但退出码误导）；Rust 按实际结果返回 rc=0 并打印新的锚点位置。

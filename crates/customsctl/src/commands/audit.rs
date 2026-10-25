@@ -10,10 +10,13 @@ use std::path::Path;
 
 use clap::{Args, Subcommand};
 use customapi_core::{audit, config};
+use serde_json::Value;
 
 use crate::commands::emit;
 use crate::ui::TabWriter;
-use crate::util::{dir_of, load_records, record_json, resolve};
+use crate::util::{
+    clock_of, dir_of, load_ledger_entries, load_records, pretty_preserving_tokens, resolve,
+};
 
 /// `customsctl audit <command>`.
 #[derive(Subcommand, Debug)]
@@ -275,17 +278,21 @@ pub fn rehash(args: &RehashArgs) -> Result<(), Box<dyn Error>> {
 }
 
 /// Runs `audit tail`.
+///
+/// The command reads the stored lines rather than decoded records: a ledger
+/// written by the Go gateway keeps local-time offsets and Go's number spelling,
+/// and both are part of the evidence an operator is looking at.
 pub fn tail(args: &TailArgs) -> Result<(), Box<dyn Error>> {
-    let records = load_records(args.config.as_deref().unwrap_or(""))?;
+    let entries = load_ledger_entries(args.config.as_deref().unwrap_or(""))?;
     let actor = args.actor.as_deref().unwrap_or("");
     let channel = args.channel.as_deref().unwrap_or("");
     let verdict = args.verdict.as_deref().unwrap_or("");
-    let mut filtered: Vec<&audit::Record> = records
+    let mut filtered: Vec<&(Value, String)> = entries
         .iter()
-        .filter(|r| {
-            (actor.is_empty() || r.actor == actor)
-                && (channel.is_empty() || r.channel == channel)
-                && (verdict.is_empty() || r.usage.verdict == verdict)
+        .filter(|(value, _)| {
+            (actor.is_empty() || text_at(value, "/actor") == actor)
+                && (channel.is_empty() || text_at(value, "/channel") == channel)
+                && (verdict.is_empty() || text_at(value, "/usage/verdict") == verdict)
         })
         .collect();
     if args.n >= 0 && filtered.len() > args.n as usize {
@@ -295,8 +302,8 @@ pub fn tail(args: &TailArgs) -> Result<(), Box<dyn Error>> {
 
     if args.json {
         let mut out = String::new();
-        for record in &filtered {
-            out.push_str(&serde_json::to_string_pretty(&record_json(record))?);
+        for (_, raw) in &filtered {
+            out.push_str(&pretty_preserving_tokens(raw));
             out.push('\n');
         }
         emit(&out);
@@ -305,31 +312,49 @@ pub fn tail(args: &TailArgs) -> Result<(), Box<dyn Error>> {
 
     let mut table = TabWriter::new();
     table.line("SEQ\tTIME\tACTOR\tCHANNEL\tMODEL\tDECISION\tTOKENS\tUPSTREAM\tVERDICT\tCOST");
-    for record in &filtered {
+    for (value, _) in &filtered {
         // A request can fail before any channel is chosen (no channel serves
         // the model, or the user is out of quota). Printing a bare empty column
         // would read as a display bug, so make the reason explicit.
-        let channel = if record.channel.is_empty() {
+        let channel = text_at(value, "/channel");
+        let channel = if channel.is_empty() {
             "(unrouted)"
         } else {
-            record.channel.as_str()
+            channel.as_str()
         };
         table.line(&format!(
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.6}",
-            record.seq,
-            record.time.format("%H:%M:%S"),
-            record.actor,
+            int_at(value, "/seq"),
+            clock_of(&text_at(value, "/time")),
+            text_at(value, "/actor"),
             channel,
-            record.model,
-            record.decision,
-            record.usage.total_tokens,
-            record.usage.upstream_total_tokens,
-            record.usage.verdict,
-            record.cost.total_cost
+            text_at(value, "/model"),
+            text_at(value, "/decision"),
+            int_at(value, "/usage/total_tokens"),
+            int_at(value, "/usage/upstream_total_tokens"),
+            text_at(value, "/usage/verdict"),
+            value
+                .pointer("/cost/total_cost")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0)
         ));
     }
     emit(&table.finish());
     Ok(())
+}
+
+/// Reads a string member of a stored record, empty when absent.
+fn text_at(value: &Value, pointer: &str) -> String {
+    value
+        .pointer(pointer)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Reads an integer member of a stored record, zero when absent.
+fn int_at(value: &Value, pointer: &str) -> i64 {
+    value.pointer(pointer).and_then(Value::as_i64).unwrap_or(0)
 }
 
 /// Runs `audit stats`.

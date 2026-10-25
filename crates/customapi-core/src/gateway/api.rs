@@ -281,7 +281,7 @@ pub(crate) async fn handle_config_summary(State(server): State<Arc<Server>>) -> 
     for channel in cfg.all_channels() {
         let mut models: Vec<String> = channel.models.keys().cloned().collect();
         models.sort();
-        channels.push(serde_json::json!({
+        let mut view = serde_json::json!({
             "name": channel.name,
             "base_url": channel.base_url,
             "protocol": channel.protocol,
@@ -289,8 +289,13 @@ pub(crate) async fn handle_config_summary(State(server): State<Arc<Server>>) -> 
             "enabled": channel.is_enabled(),
             "weight": crate::json::GoFloat(channel.weight),
             "has_key": !channel.api_key.is_empty(),
-            "models": models,
-        }));
+        });
+        // Go declares `models` with `omitempty`, so a channel with no declared
+        // catalogue carries no `models` key at all.
+        if !models.is_empty() {
+            view["models"] = serde_json::json!(models);
+        }
+        channels.push(view);
     }
     // Secrets are never echoed; only their presence is reported.
     let payload = serde_json::json!({

@@ -72,6 +72,25 @@ pub mod json {
         v.0.is_zero()
     }
 
+    /// Serialises an empty collection as `null`, the way Go's `encoding/json`
+    /// renders a nil slice.
+    ///
+    /// The management API mirrors Go's structs field for field, and a Go handler
+    /// that builds its payload from a nil `[]string` emits `null` rather than
+    /// `[]`. Clients accept both, but the wire format is part of the contract
+    /// the port promises.
+    pub fn vec_or_null<T, S>(items: &[T], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        T: Serialize,
+        S: Serializer,
+    {
+        if items.is_empty() {
+            serializer.serialize_none()
+        } else {
+            items.serialize(serializer)
+        }
+    }
+
     /// Serialises a `Duration` the way Go writes `time.Duration`: "30s", "2m0s",
     /// "1.5s", "300ms", "0s".
     pub fn format_duration(d: StdDuration) -> String {

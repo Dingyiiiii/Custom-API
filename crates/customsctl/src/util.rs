@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use customapi_core::{audit, config};
 use serde::Serialize;
 use serde_json::Value;
@@ -90,22 +90,50 @@ pub fn load_records(config_path: &str) -> Result<Vec<audit::Record>, Box<dyn std
     Ok(audit::read_all(&ledger)?)
 }
 
-/// Renders an instant the way Go's `time.Time` JSON marshaller does
-/// (`RFC3339Nano`): fractional seconds, trailing zeros trimmed, omitted when
-/// zero.
+/// Renders the wall-clock time of a stored RFC3339 timestamp.
 ///
-/// chrono's serialiser pads the fraction to 3, 6 or 9 digits, so a record with
-/// exactly `…:21.5` would come out as `…:21.500Z`. `audit tail --json` output is
-/// diffed against the Go build, so the trimming is reproduced here.
-pub fn rfc3339_nano(t: &DateTime<Utc>) -> String {
-    let nanos = t.timestamp_subsec_nanos();
-    let base = t.format("%Y-%m-%dT%H:%M:%S");
-    if nanos == 0 {
-        return format!("{base}Z");
+/// The offset in the stored text is authoritative. The Go gateway wrote local
+/// time (`+08:00`) and its CLI prints records through
+/// `time.Time.Format("15:04:05")`, which keeps whatever offset the record
+/// carried. Normalising to UTC here would shift every record in a ledger written
+/// by the Go build, so the offset is preserved.
+pub fn clock_of(stamp: &str) -> String {
+    match DateTime::parse_from_rfc3339(stamp) {
+        Ok(instant) => instant.format("%H:%M:%S").to_string(),
+        // Go leaves a zero time at 00:00:00 when the field is absent or
+        // unparseable in a hand-edited record.
+        Err(_) => "00:00:00".to_string(),
     }
-    let digits = format!("{nanos:09}");
-    let trimmed = digits.trim_end_matches('0');
-    format!("{base}.{trimmed}Z")
+}
+
+/// Loads the ledger the configuration points at, keeping each record's original
+/// text alongside its parsed form.
+///
+/// `audit tail` presents stored evidence, so it must not re-encode it: a record
+/// written by the Go gateway carries a local UTC offset and the numbers its
+/// encoder produced (`0.000009`, not `9e-6`), and both would change if the line
+/// were parsed and serialised again.
+pub fn load_ledger_entries(
+    config_path: &str,
+) -> Result<Vec<(Value, String)>, Box<dyn std::error::Error>> {
+    if config_path.is_empty() {
+        return Err("--config is required".into());
+    }
+    let cfg = config::load(Path::new(config_path))?;
+    let ledger = resolve(&dir_of(config_path), &cfg.server.audit_path);
+    let text =
+        std::fs::read_to_string(&ledger).map_err(|err| format!("audit: open {ledger}: {err}"))?;
+    let mut entries = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let value: Value =
+            serde_json::from_str(line).map_err(|err| format!("audit: parse record: {err}"))?;
+        entries.push((value, line.to_string()));
+    }
+    Ok(entries)
 }
 
 /// Converts every integral float in the value to an integer.
@@ -171,25 +199,85 @@ pub fn sort_keys(value: &mut Value) {
     }
 }
 
-/// Renders a record for `audit tail --json`, with Go's timestamp text.
-pub fn record_json(record: &audit::Record) -> Value {
-    let mut value = to_go_json(record);
-    if let Value::Object(map) = &mut value {
-        // `time` and `end_time` are always present (Go's omitempty does not
-        // apply to a struct), so both are rewritten rather than conditionally.
-        for (key, instant) in [("time", &record.time), ("end_time", &record.end_time)] {
-            if map.get(key).map(|v| v.is_string()).unwrap_or(false) {
-                map.insert(key.to_string(), Value::String(rfc3339_nano(instant)));
+/// Pretty-prints JSON text with the layout `json.MarshalIndent(v, "", "  ")`
+/// produces, copying every token verbatim.
+///
+/// Re-serialising a parsed value would rewrite numbers (serde renders
+/// `0.000009` as `9e-6`) and timestamps (parsed into UTC), which is exactly the
+/// evidence `audit tail --json` exists to show unchanged.
+pub fn pretty_preserving_tokens(raw: &str) -> String {
+    let chars: Vec<char> = raw.trim().chars().collect();
+    let mut out = String::with_capacity(raw.len() + raw.len() / 2);
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if in_string {
+            out.push(c);
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_string = false;
             }
+            i += 1;
+            continue;
         }
+        match c {
+            '"' => {
+                in_string = true;
+                out.push(c);
+            }
+            '{' | '[' => {
+                let closing = if c == '{' { '}' } else { ']' };
+                // An empty container stays on one line, like Go's encoder.
+                let mut j = i + 1;
+                while j < chars.len() && chars[j].is_whitespace() {
+                    j += 1;
+                }
+                out.push(c);
+                if j < chars.len() && chars[j] == closing {
+                    out.push(closing);
+                    i = j + 1;
+                    continue;
+                }
+                depth += 1;
+                out.push('\n');
+                push_indent(&mut out, depth);
+            }
+            '}' | ']' => {
+                depth = depth.saturating_sub(1);
+                out.push('\n');
+                push_indent(&mut out, depth);
+                out.push(c);
+            }
+            ',' => {
+                out.push(',');
+                out.push('\n');
+                push_indent(&mut out, depth);
+            }
+            ':' => out.push_str(": "),
+            c if c.is_whitespace() => {}
+            _ => out.push(c),
+        }
+        i += 1;
     }
-    value
+    out
+}
+
+/// Writes two spaces per nesting level.
+fn push_indent(out: &mut String, depth: usize) {
+    for _ in 0..depth {
+        out.push_str("  ");
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
 
     #[test]
     fn dir_of_matches_the_go_helper() {
@@ -214,15 +302,34 @@ mod tests {
     }
 
     #[test]
-    fn timestamps_are_trimmed_like_rfc3339_nano() {
-        let base = Utc.with_ymd_and_hms(2026, 3, 4, 13, 5, 6).unwrap();
-        assert_eq!(rfc3339_nano(&base), "2026-03-04T13:05:06Z");
-        let half = base + chrono::Duration::milliseconds(500);
-        assert_eq!(rfc3339_nano(&half), "2026-03-04T13:05:06.5Z");
-        let nanos = base + chrono::Duration::nanoseconds(635_246_221);
-        assert_eq!(rfc3339_nano(&nanos), "2026-03-04T13:05:06.635246221Z");
-        let micros = base + chrono::Duration::microseconds(123_456);
-        assert_eq!(rfc3339_nano(&micros), "2026-03-04T13:05:06.123456Z");
+    fn clock_keeps_the_stored_offset() {
+        // The Go gateway writes local time; a record must display the hour it
+        // was written at, not that instant in UTC.
+        assert_eq!(clock_of("2026-10-25T20:46:45.789569071+08:00"), "20:46:45");
+        assert_eq!(clock_of("2026-10-25T12:46:47.819585487Z"), "12:46:47");
+        // A malformed or missing stamp renders like Go's zero time.
+        assert_eq!(clock_of(""), "00:00:00");
+        assert_eq!(clock_of("not a timestamp"), "00:00:00");
+    }
+
+    #[test]
+    fn pretty_printing_preserves_tokens() {
+        let raw = r#"{"seq":1,"time":"2026-10-25T20:46:45.789569071+08:00","cost":{"input_cost":0.000009},"empty":{},"list":[],"note":"a \"quoted\" {brace}"}"#;
+        let pretty = pretty_preserving_tokens(raw);
+        let expected = [
+            "{",
+            r#"  "seq": 1,"#,
+            r#"  "time": "2026-10-25T20:46:45.789569071+08:00","#,
+            r#"  "cost": {"#,
+            r#"    "input_cost": 0.000009"#,
+            "  },",
+            r#"  "empty": {},"#,
+            r#"  "list": [],"#,
+            r#"  "note": "a \"quoted\" {brace}""#,
+            "}",
+        ]
+        .join("\n");
+        assert_eq!(pretty, expected);
     }
 
     #[test]
