@@ -18,3 +18,8 @@ log = { workspace = true }
 env_logger = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
+
+[dev-dependencies]
+# The CLI tests signal the daemon directly; shelling out to `kill` would make them
+# depend on procps being installed (a slim container has no /bin/kill).
+libc = { workspace = true }

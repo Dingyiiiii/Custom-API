@@ -33,7 +33,7 @@
 - 与 Go 版的差别（工具链、依赖、构建方式、**CLI 用双横线长选项**）记录在
   [`PORTING.md`](PORTING.md) 与 [`docs/DEPLOYMENT-zh.md`](docs/DEPLOYMENT-zh.md)；
 - 当前状态：`customapi-core` 的 11 个模块 + 三个入口程序（`customsd` / `benchd` /
-  `customsctl`）均已移植，`cargo test --workspace` 733 项通过；FreeBSD 上的
+  `customsctl`）均已移植，`cargo test --workspace` 747 项通过；FreeBSD 上的
   89 项验收待用 Rust 二进制重跑，见
   [`docs/DEVELOPMENT-zh.md`](docs/DEVELOPMENT-zh.md) 第 10 节。
 

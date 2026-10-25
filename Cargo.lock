@@ -426,6 +426,7 @@ dependencies = [
  "clap",
  "customapi-core",
  "env_logger",
+ "libc",
  "log",
  "serde_json",
  "tokio",

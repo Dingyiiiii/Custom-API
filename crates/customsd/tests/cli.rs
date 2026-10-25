@@ -246,6 +246,15 @@ fn a_taken_proxy_port_is_reported() {
     assert!(err(&out).contains("proxy listener:"), "{}", err(&out));
 }
 
+/// Signals a child process without depending on an external `kill` binary.
+fn send_sigterm(pid: u32) {
+    // SAFETY: `kill` is a plain syscall wrapper; the pid comes from a live child
+    // this test spawned, and the call neither dereferences pointers nor retains
+    // state.
+    let rc = unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
+    assert_eq!(rc, 0, "sending SIGTERM to {pid} failed");
+}
+
 #[test]
 fn sigterm_shuts_down_cleanly_and_writes_the_final_anchor() {
     let dir = TempDir::new("sigterm");
@@ -278,11 +287,7 @@ fn sigterm_shuts_down_cleanly_and_writes_the_final_anchor() {
     }
 
     // SIGTERM is what `service customsd stop` sends.
-    let status = Command::new("kill")
-        .args(["-TERM", &child.id().to_string()])
-        .status()
-        .expect("sends SIGTERM");
-    assert!(status.success(), "kill failed");
+    send_sigterm(child.id());
 
     let deadline = Instant::now() + Duration::from_secs(20);
     let exit = loop {

@@ -4122,3 +4122,154 @@ async fn rate_limit_error_code() {
     assert_eq!(refusal.json()["error"]["code"], "rate_limit_exceeded");
     assert_eq!(refusal.json()["error"]["type"], "rate_limit_exceeded");
 }
+
+/// The user-facing root is a service map, not a 404: an operator probing the
+/// listener should be told which endpoints exist.
+#[tokio::test]
+async fn root_reports_the_service_map() {
+    let h = Harness::new(HarnessOptions::default()).await;
+    let response = h.get("", "/").await;
+    assert_eq!(response.status, 200, "body={}", response.body);
+    let body = response.json();
+    assert_eq!(body["service"], "customapi-customs");
+    let endpoints: Vec<&str> = body["endpoints"]
+        .as_array()
+        .expect("endpoints array")
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect();
+    assert!(endpoints.contains(&"/v1/chat/completions"), "{endpoints:?}");
+    assert!(endpoints.contains(&"/healthz"), "{endpoints:?}");
+    assert!(
+        body["version"]
+            .as_str()
+            .unwrap_or("")
+            .starts_with("customapi "),
+        "version missing: {}",
+        response.body
+    );
+}
+
+/// Go mounts `/admin/channels` as the configuration summary under a second name;
+/// the two must stay identical or a caller would see two different answers.
+#[tokio::test]
+async fn admin_channels_aliases_the_config_summary() {
+    let h = Harness::new(HarnessOptions::default()).await;
+    let channels = h.admin(Method::GET, "/admin/channels", None).await;
+    let config = h.admin(Method::GET, "/admin/config", None).await;
+    assert_eq!(channels.status, 200, "body={}", channels.body);
+    assert_eq!(channels.json(), config.json());
+}
+
+/// Every way a user-management request can be wrong has its own error code, and
+/// the path form reaches the same store as the body form.
+#[tokio::test]
+async fn admin_user_actions_validate_their_input() {
+    let h = Harness::new(HarnessOptions::default()).await;
+
+    let missing_user = h.admin(Method::POST, "/admin/users", Some("{}")).await;
+    assert_eq!(missing_user.status, 400);
+    assert_eq!(missing_user.json()["error"]["code"], "missing_user");
+
+    let missing_action = h
+        .admin(Method::POST, "/admin/users", Some(r#"{"user":"alice"}"#))
+        .await;
+    assert_eq!(missing_action.status, 400);
+    assert_eq!(missing_action.json()["error"]["code"], "missing_action");
+
+    let unknown = h
+        .admin(
+            Method::POST,
+            "/admin/users",
+            Some(r#"{"user":"alice","action":"teleport"}"#),
+        )
+        .await;
+    assert_eq!(unknown.status, 400);
+    assert_eq!(unknown.json()["error"]["code"], "unknown_action");
+
+    let ghost = h
+        .admin(
+            Method::POST,
+            "/admin/users/ghost",
+            Some(r#"{"action":"suspend"}"#),
+        )
+        .await;
+    assert_eq!(ghost.status, 404);
+    assert_eq!(ghost.json()["error"]["code"], "user_error");
+
+    let suspend = h
+        .admin(
+            Method::POST,
+            "/admin/users/alice",
+            Some(r#"{"action":"suspend"}"#),
+        )
+        .await;
+    assert_eq!(suspend.status, 200, "body={}", suspend.body);
+    assert_eq!(suspend.json()["ok"], true);
+
+    // Suspension takes effect on the proxy immediately.
+    let refused = h.post("tok-alice", SIMPLE_ASK, &[]).await;
+    assert_eq!(refused.status, 403, "body={}", refused.body);
+    assert_eq!(refused.json()["error"]["code"], "user_suspended");
+
+    let resume = h
+        .admin(
+            Method::POST,
+            "/admin/users",
+            Some(r#"{"user":"alice","action":"resume"}"#),
+        )
+        .await;
+    assert_eq!(resume.status, 200, "body={}", resume.body);
+    assert_eq!(h.post("tok-alice", SIMPLE_ASK, &[]).await.status, 200);
+}
+
+/// The audit and usage views honour their filter parameters instead of always
+/// returning everything.
+#[tokio::test]
+async fn admin_views_honour_filter_parameters() {
+    let h = Harness::new(HarnessOptions::default()).await;
+    h.post("tok-alice", SIMPLE_ASK, &[]).await;
+
+    let mine = h
+        .admin(Method::GET, "/admin/audit?actor=alice&limit=10", None)
+        .await;
+    assert_eq!(mine.status, 200, "body={}", mine.body);
+    assert!(
+        !mine.json()["records"]
+            .as_array()
+            .expect("records")
+            .is_empty(),
+        "alice has a record"
+    );
+
+    let other = h
+        .admin(Method::GET, "/admin/audit?actor=nobody", None)
+        .await;
+    assert_eq!(
+        other.json()["records"].as_array().expect("records").len(),
+        0,
+        "an unknown actor matches nothing"
+    );
+
+    let by_model = h
+        .admin(Method::GET, "/admin/usage?model=gpt-4o", None)
+        .await;
+    assert!(by_model.json()["records"].as_i64().unwrap_or(0) >= 1);
+    let none = h
+        .admin(Method::GET, "/admin/usage?model=not-a-model", None)
+        .await;
+    assert_eq!(none.json()["records"].as_i64().unwrap_or(-1), 0);
+}
+
+/// The scorecard and fingerprint views exist even when no evidence has been
+/// collected yet; they answer with empty collections rather than an error.
+#[tokio::test]
+async fn admin_scores_and_fingerprints_answer_before_any_evidence() {
+    let h = Harness::new(HarnessOptions::default()).await;
+    for path in ["/admin/scores", "/admin/fingerprints"] {
+        let response = h.admin(Method::GET, path, None).await;
+        assert_eq!(response.status, 200, "{path}: {}", response.body);
+        let body = response.json();
+        assert!(body.is_object(), "{path} must return an object");
+    }
+}

@@ -250,3 +250,145 @@ mod tests {
         );
     }
 }
+
+/// The SPA file server: paths, fallbacks and the placeholder.
+#[cfg(test)]
+mod spa_tests {
+    use super::*;
+    use crate::audit::testutil::TempDir;
+    use http_body_util::BodyExt;
+
+    /// Creates `<dir>/index.html` and returns the directory.
+    fn site(dir: &TempDir, name: &str, shell: &str) -> PathBuf {
+        let root = dir.join(name);
+        std::fs::create_dir_all(&root).expect("create site dir");
+        std::fs::write(root.join("index.html"), shell).expect("write index");
+        root
+    }
+
+    async fn body_text(response: Response) -> String {
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
+
+    fn content_type(response: &Response) -> String {
+        response
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string()
+    }
+
+    #[test]
+    fn locate_finds_a_built_console_below_the_base_directory() {
+        let dir = TempDir::new();
+        let base = dir.join("release");
+        std::fs::create_dir_all(base.join("web/dist")).expect("dirs");
+        std::fs::write(base.join("web/dist/index.html"), "shell").expect("index");
+        assert_eq!(locate_web_dir(&base), Some(base.join("web/dist")));
+    }
+
+    #[test]
+    fn locate_returns_none_without_a_build() {
+        let dir = TempDir::new();
+        assert_eq!(locate_web_dir(&dir.join("empty")), None);
+    }
+
+    #[tokio::test]
+    async fn serves_an_asset_with_its_content_type() {
+        let dir = TempDir::new();
+        let root = site(&dir, "assets", "shell");
+        std::fs::write(root.join("app.js"), "console.log(1)").expect("asset");
+
+        let response = serve_spa(Some(&root), "/app.js").await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(content_type(&response), "text/javascript; charset=utf-8");
+        assert_eq!(body_text(response).await, "console.log(1)");
+    }
+
+    #[tokio::test]
+    async fn unknown_extensions_are_served_as_octet_stream() {
+        let dir = TempDir::new();
+        let root = site(&dir, "binary", "shell");
+        std::fs::write(root.join("data.bin"), [0u8, 1, 2]).expect("asset");
+
+        let response = serve_spa(Some(&root), "/data.bin").await;
+        assert_eq!(content_type(&response), "application/octet-stream");
+    }
+
+    #[tokio::test]
+    async fn a_deep_link_falls_back_to_the_shell() {
+        let dir = TempDir::new();
+        let root = site(&dir, "spa", "the-shell");
+
+        let response = serve_spa(Some(&root), "/providers").await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(content_type(&response), "text/html; charset=utf-8");
+        // The shell must never be cached: it references hashed asset names.
+        assert_eq!(
+            response
+                .headers()
+                .get(axum::http::header::CACHE_CONTROL)
+                .and_then(|v| v.to_str().ok()),
+            Some("no-cache")
+        );
+        assert_eq!(body_text(response).await, "the-shell");
+    }
+
+    #[tokio::test]
+    async fn path_traversal_is_answered_with_the_shell() {
+        let dir = TempDir::new();
+        let root = site(&dir, "spa", "the-shell");
+        std::fs::write(dir.join("secret.txt"), "do-not-serve").expect("secret");
+
+        for path in ["/../secret.txt", "/./secret.txt", "/a/../../secret.txt"] {
+            let response = serve_spa(Some(&root), path).await;
+            assert_eq!(response.status(), StatusCode::OK, "path {path}");
+            assert_eq!(
+                body_text(response).await,
+                "the-shell",
+                "path {path} must not escape the web root"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_directory_request_serves_its_own_index() {
+        let dir = TempDir::new();
+        let root = site(&dir, "spa", "the-shell");
+        std::fs::create_dir_all(root.join("docs")).expect("dir");
+        std::fs::write(root.join("docs/index.html"), "docs-index").expect("index");
+
+        let response = serve_spa(Some(&root), "/docs/").await;
+        assert_eq!(body_text(response).await, "docs-index");
+    }
+
+    #[tokio::test]
+    async fn a_vanished_index_falls_back_to_the_placeholder() {
+        let dir = TempDir::new();
+        let root = site(&dir, "spa", "the-shell");
+        std::fs::remove_file(root.join("index.html")).expect("remove");
+
+        let response = serve_spa(Some(&root), "/providers").await;
+        let body = body_text(response).await;
+        assert!(body.contains("CUSTOMS_WEB_DIR"), "placeholder expected");
+    }
+
+    #[tokio::test]
+    async fn without_a_build_the_placeholder_explains_how_to_build_one() {
+        let response = serve_spa(None, "/").await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_text(response).await;
+        assert!(body.contains("npm run build"), "{body}");
+        assert_eq!(
+            content_type(&serve_spa(None, "/").await),
+            "text/html; charset=utf-8"
+        );
+    }
+}
