@@ -122,8 +122,8 @@ make local-test          # == ./deploy/scripts/deploy.sh local-test
 Rust 没有竞态检测器可开，`make test-race` 就是跑一遍 `cargo test --workspace`
 （历史目标名保留，让运维习惯与文档不至于断掉）。
 
-当前基线（本机实测）：`cargo test --workspace --locked` **715 个测试全部通过**。
-其中 `customapi-core` 620 个，按模块分布：
+当前基线（本机实测）：`cargo test --workspace --locked` **716 个测试全部通过**。
+其中 `customapi-core` 621 个，按模块分布：
 
 | 模块 | 用例数 | 模块 | 用例数 |
 |---|---|---|---|
@@ -382,7 +382,7 @@ sudo cat $(sudo ls -dt /tmp/customapi-e2e.* | head -1)/gateway.log
 
 | 项 | 状态 |
 |---|---|
-| `customapi-core` 全部模块 | 已移植，620 个测试通过 |
+| `customapi-core` 全部模块 | 已移植，621 个测试通过 |
 | Go 测试用例翻译 | 按模块随移植落地；用例名保留 Go 的语义 |
 | `customsd` 入口 | 已接线：clap 参数、两个监听器、信号处理、配额周期重置、周期锚点、停机前补锚点 |
 | `benchd` 入口 | 已接线：`run` / `prices` / `fingerprint` / `bench` / `score` 五个任务 |

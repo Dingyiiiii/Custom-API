@@ -149,12 +149,12 @@ const filteredPrices = computed(() => {
             <dd>
               <span class="tag-list">
                 <Badge
-                  v-for="r in routing.retry_on"
+                  v-for="r in routing.retry_on ?? []"
                   :key="r"
                   :text="r"
                   tone="muted"
                 />
-                <span v-if="routing.retry_on.length === 0" class="muted">不重试</span>
+                <span v-if="(routing.retry_on ?? []).length === 0" class="muted">不重试</span>
               </span>
             </dd>
           </dl>

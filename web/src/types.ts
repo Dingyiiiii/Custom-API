@@ -123,7 +123,9 @@ export interface ProviderChannel {
   channel: string
   key?: string
   protocol: string
-  protocols?: string[]
+  // The gateway mirrors Go, which writes `null` for a channel that declared no
+  // protocol surfaces, so this can be null as well as absent.
+  protocols?: string[] | null
   has_key: boolean
   enabled: boolean
   weight?: number
@@ -176,7 +178,8 @@ export interface RoutingConfig {
   prefer_same_protocol: boolean
   allow_translation: boolean
   max_attempts: number
-  retry_on: string[]
+  // Go encodes an unset RetryOn slice as `null`, and the gateway mirrors that.
+  retry_on: string[] | null
 }
 
 export interface ProvidersResponse {
